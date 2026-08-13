@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>暗潮 Mod 管理器</title>
+<style>
+  :root {
+    --bg: #12141a; --panel: #1a1e27; --panel2: #222734;
+    --border: #2c3242; --text: #dfe3ec; --dim: #8b94a7;
+    --accent: #4da3ff; --green: #3ecf8e; --red: #ff6b6b; --warn: #ffb454;
+    --sidebar-w: 168px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    font-size: 13.5px; display: flex; flex-direction: column;
+    overflow: hidden; user-select: none;
+  }
+
+  /* ---------- 顶栏 ---------- */
+  .titlebar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .logo {
+    width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
+    background: radial-gradient(circle at 50% 40%, #1f6f4e, #14352a 70%);
+    border: 1px solid #2a9d68; position: relative;
+  }
+  .logo::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green); transform: translate(-50%, -50%);
+    box-shadow: 0 0 8px rgba(62,207,142,.8);
+  }
+  .titlebar h1 { font-size: 14.5px; font-weight: 600; letter-spacing: .3px; }
+  .game-status {
+    margin-left: auto; font-size: 12px; color: var(--dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%;
+  }
+  .game-status .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 6px; }
+
+  /* ---------- 主体 ---------- */
+  .body { display: flex; flex: 1; min-height: 0; }
+  .sidebar {
+    width: var(--sidebar-w); flex-shrink: 0; background: var(--panel);
+    border-right: 1px solid var(--border); padding: 10px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .sidebar button {
+    background: transparent; border: none; color: var(--dim);
+    text-align: left; padding: 9px 12px; border-radius: 7px;
+    font-size: 13px; cursor: pointer; transition: all .12s;
+    display: flex; align-items: center; gap: 9px;
+  }
+  .sidebar button:hover { background: var(--panel2); color: var(--text); }
+  .sidebar button.active { background: #22304a; color: var(--accent); font-weight: 600; }
+  .sidebar .icon { font-size: 15px; width: 18px; text-align: center; }
+  .sidebar .foot { margin-top: auto; font-size: 11px; color: #5a6275; padding: 8px 12px; }
+  .sidebar .launch-btn {
+    margin: 6px 4px 2px; padding: 14px 10px;
+    background: linear-gradient(135deg, #1e6b45, #268a58);
+    color: #d8f5e8; border: 1px solid #2a9d68; border-radius: 10px;
+    font-size: 15px; font-weight: 700; letter-spacing: 1px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: all .15s; box-shadow: 0 2px 10px rgba(42,157,104,.25);
+  }
+  .sidebar .launch-btn:hover {
+    background: linear-gradient(135deg, #268a58, #2f9d66);
+    transform: translateY(-1px); box-shadow: 0 5px 16px rgba(42,157,104,.4);
+  }
+  .sidebar .launch-btn:disabled {
+    opacity: .55; cursor: not-allowed; transform: none; box-shadow: none;
+  }
+
+  .content { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .view { flex: 1; min-height: 0; display: none; flex-direction: column; }
+  .view.active { display: flex; }
+
+  /* ---------- 工具条 ---------- */
+  .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 14px 8px; flex-shrink: 0; }
+  input[type="text"] {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 12px; font-size: 13px; outline: none; flex: 1; max-width: 320px;
+    transition: border-color .15s;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  .chips { display: flex; gap: 5px; }
+  .chip {
+    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
+    border-radius: 20px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all .12s;
+  }
+  .chip:hover { color: var(--text); }
+  .chip.active { background: #22304a; border-color: var(--accent); color: var(--accent); }
+  button.ghost {
+    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; transition: all .12s;
+  }
+  button.ghost:hover { color: var(--text); background: #272e3d; }
+  .spacer { flex: 1; }
+
+  /* ---------- Mod 列表 ---------- */
+  .list-wrap { flex: 1; overflow-y: auto; padding: 4px 14px 14px; }
+  .list-wrap::-webkit-scrollbar { width: 9px; }
+  .list-wrap::-webkit-scrollbar-thumb { background: #2c3242; border-radius: 6px; border: 2px solid var(--bg); }
+  .list-wrap::-webkit-scrollbar-thumb:hover { background: #3a4256; }
+
+  .mod-row {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 14px; margin-bottom: 5px;
+    cursor: grab; transition: border-color .12s, background .12s;
+  }
+  .mod-row:hover { border-color: #3d4659; }
+  .mod-row.disabled { opacity: .5; cursor: default; }
+  .mod-row.missing { border-color: rgba(255,180,84,.45); }
+  .mod-row.sortable-ghost { opacity: .25; }
+  .mod-row.sortable-chosen { background: #20293c; border-color: var(--accent); }
+
+  .switch { position: relative; width: 38px; height: 21px; flex-shrink: 0; }
+  .switch input { display: none; }
+  .slider {
+    position: absolute; inset: 0; background: #39404f; border-radius: 20px;
+    transition: background .18s; cursor: pointer;
+  }
+  .slider::before {
+    content: ""; position: absolute; width: 15px; height: 15px; left: 3px; top: 3px;
+    background: #9aa3b3; border-radius: 50%; transition: transform .18s, background .18s;
+  }
+  .switch input:checked + .slider { background: var(--green); }
+  .switch input:checked + .slider::before { transform: translateX(17px); background: #fff; }
+
+  .mod-main { flex: 1; min-width: 0; }
+  .mod-name { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mod-sub { font-size: 11.5px; color: var(--dim); margin-top: 1px; }
+  .mod-order { font-size: 11.5px; color: var(--dim); flex-shrink: 0; width: 34px; text-align: center; }
+  .mod-badge { font-size: 11px; color: var(--warn); flex-shrink: 0; }
+  .drag-hint { font-size: 12px; color: #4a5265; flex-shrink: 0; padding-left: 4px; }
+  .disabled .drag-hint { visibility: hidden; }
+
+  .empty { text-align: center; color: var(--dim); padding: 60px 0; font-size: 13px; }
+
+  /* ---------- DMF 横幅 / 补丁横幅 / 拖拽导入 ---------- */
+  #dmfBanner { padding: 0 14px; flex-shrink: 0; }
+  #patchBanner { padding: 0 14px; flex-shrink: 0; }
+  .banner {
+    display: flex; align-items: center; gap: 12px;
+    border-radius: 9px; padding: 10px 14px; margin-bottom: 10px; font-size: 12.5px;
+  }
+  .banner.warn { background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.4); color: var(--warn); }
+  .banner.ok { background: rgba(62,207,142,.08); border: 1px solid rgba(62,207,142,.35); color: var(--green); }
+  .banner.err { background: rgba(255,107,107,.1); border: 1px solid rgba(255,107,107,.4); color: var(--red); }
+  .banner .b-text { flex: 1; }
+  .banner button {
+    background: #1e6b45; color: #d8f5e8; border: 1px solid #2a9d68;
+    border-radius: 7px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-weight: 600;
+  }
+  .banner button:hover { background: #268a58; }
+  .banner button:disabled { opacity: .5; cursor: not-allowed; }
+  .banner button.danger { background: #7c2f2f; border-color: #a84444; color: #ffd9d9; }
+  .banner button.danger:hover { background: #944040; }
+  .banner button.neutral { background: var(--panel2); border-color: var(--border); color: var(--text); font-weight: 500; }
+  .banner button.neutral:hover { background: #2c3340; }
+  .list-wrap.dragover { outline: 2px dashed var(--accent); outline-offset: -6px; background: rgba(77,163,255,.05); }
+
+  /* ---------- 预设视图 ---------- */
+  .cards { flex: 1; overflow-y: auto; padding: 12px 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; align-content: start; }
+  .cards::-webkit-scrollbar { width: 9px; }
+  .cards::-webkit-scrollbar-thumb { background: #2c3242; border-radius: 6px; border: 2px solid var(--bg); }
+  .profile-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .profile-card:hover { border-color: #3d4659; }
+  .profile-card .pc-name { font-size: 14px; font-weight: 600; }
+  .profile-card .pc-meta { font-size: 12px; color: var(--dim); }
+  .profile-card .pc-actions { display: flex; gap: 6px; margin-top: 4px; }
+  .profile-card button {
+    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; transition: all .12s; flex: 1;
+  }
+  .profile-card button:hover { color: var(--text); }
+  .profile-card button.pc-apply:hover { border-color: var(--accent); color: var(--accent); }
+  .profile-card button.pc-del:hover { border-color: var(--red); color: var(--red); }
+  .new-profile {
+    border: 1.5px dashed #39404f; background: transparent; border-radius: 10px;
+    padding: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; color: var(--dim); cursor: pointer; transition: all .12s; min-height: 108px;
+  }
+  .new-profile:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---------- 关于视图 ---------- */
+  .about { padding: 18px; overflow-y: auto; }
+  .about .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; margin-bottom: 12px; max-width: 640px;
+  }
+  .about h3 { font-size: 13px; color: var(--dim); margin-bottom: 10px; font-weight: 600; }
+  .about .kv { display: grid; grid-template-columns: 96px 1fr; gap: 6px 12px; font-size: 12.5px; }
+  .about .kv .k { color: var(--dim); }
+  .about .kv .v { color: var(--text); word-break: break-all; user-select: text; }
+  .about .tip { color: var(--dim); font-size: 12.5px; line-height: 1.7; user-select: text; }
+
+  /* ---------- 状态栏 ---------- */
+  .statusbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 9px 16px; background: var(--panel);
+    border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+  .statusbar .stats { font-size: 12px; color: var(--dim); }
+  .statusbar .stats b { color: var(--text); font-weight: 600; }
+  .dirty {
+    display: none; font-size: 12px; color: var(--warn);
+    background: rgba(255,180,84,.1); border: 1px solid rgba(255,180,84,.35);
+    border-radius: 20px; padding: 3px 11px;
+  }
+  .dirty.show { display: inline-block; }
+  .statusbar .spacer { flex: 1; }
+  .statusbar button {
+    border-radius: 7px; padding: 7px 16px; font-size: 12.5px; cursor: pointer; transition: all .12s;
+    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
+  }
+  .statusbar button:hover:not(:disabled) { color: var(--text); }
+  .statusbar button:disabled { opacity: .4; cursor: not-allowed; }
+  .statusbar .save {
+    background: #1e6b45; color: #d8f5e8; border-color: #2a9d68; font-weight: 600;
+  }
+  .statusbar .save:hover:not(:disabled) { background: #268a58; color: #fff; }
+
+  .toast {
+    position: fixed; bottom: 54px; left: 50%; transform: translateX(-50%) translateY(8px);
+    background: #232a37; border: 1px solid #3a4256; border-radius: 8px;
+    padding: 10px 18px; font-size: 12.5px; opacity: 0; transition: all .22s;
+    pointer-events: none; z-index: 99; box-shadow: 0 6px 24px rgba(0,0,0,.45);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------- 模态对话框 ---------- */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(8,10,14,.62); z-index: 100;
+    display: none;  /* 默认隐藏；用 .open 显示，避免 [hidden] 被覆盖 */
+  }
+  .modal-overlay.open {
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid #3a4256; border-radius: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.55); width: 360px; max-width: 90vw;
+    padding: 20px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .modal-title { font-size: 14.5px; font-weight: 600; }
+  .modal-text { font-size: 13px; color: var(--dim); line-height: 1.6; }
+  .modal input[type="text"] {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 9px 12px; font-size: 13.5px; outline: none;
+  }
+  .modal input[type="text"]:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-actions button {
+    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 16px; font-size: 12.5px; cursor: pointer; transition: all .12s;
+  }
+  .modal-actions button:hover { color: var(--text); }
+  .modal-actions .ok { background: #1e6b45; color: #d8f5e8; border-color: #2a9d68; font-weight: 600; }
+  .modal-actions .ok:hover { background: #268a58; color: #fff; }
+  /* ---------- 右键菜单 ---------- */
+  .ctx-menu {
+    position: fixed; z-index: 999; background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px;
+    min-width: 150px; box-shadow: 0 6px 20px rgba(0,0,0,.45);
+  }
+  .ctx-menu button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--text); padding: 8px 10px; border-radius: 5px;
+    font-size: 12.5px; cursor: pointer;
+  }
+  .ctx-menu button:hover { background: #22304a; }
+  .ctx-menu button:disabled { opacity: .45; cursor: not-allowed; }
+  .ctx-menu button:disabled:hover { background: none; }
+  .ctx-menu .ctx-danger { color: #ff8a8a; }
+  .mod-note { color: var(--dim); font-style: italic; font-weight: 400; }
+</style>
+</head>
+<body>
+  <!-- 顶栏 -->
+  <header class="titlebar">
+    <div class="logo"></div>
+    <h1>暗潮 Mod 管理器</h1>
+    <div class="game-status" id="gameStatus"><span class="dot"></span>连接中…</div>
+  </header>
+
+  <!-- 主体 -->
+  <div class="body">
+    <nav class="sidebar">
+      <button class="launch-btn" id="btnLaunchSidebar">▶ 启动游戏</button>
+      <button data-view="mods" class="active"><span class="icon">▤</span>Mod 管理</button>
+      <button data-view="profiles"><span class="icon">❖</span>预设</button>
+      <button data-view="backups"><span class="icon">↺</span>备份</button>
+      <button data-view="about"><span class="icon">i</span>关于</button>
+      <div class="foot">v0.2.1 · DMM 暗潮MOD管理器</div>
+    </nav>
+
+    <main class="content">
+      <!-- Mod 视图 -->
+      <section class="view active" id="view-mods">
+        <div class="toolbar">
+          <input type="text" id="search" placeholder="搜索 mod 名称…">
+          <div class="chips">
+            <button class="chip active" data-filter="all">全部</button>
+            <button class="chip" data-filter="on">已启用</button>
+            <button class="chip" data-filter="off">已禁用</button>
+          </div>
+          <span class="spacer"></span>
+          <button class="ghost" id="btnImport" style="border-color:#2a9d68;color:#3ecf8e">＋ 导入 mod</button>
+          <button class="ghost" id="btnPackImport" style="border-color:#d4872a;color:#ffb454">📦 导入整合包</button>
+          <button class="ghost" id="btnRefresh">刷新</button>
+          <input type="file" id="fileInput" accept=".zip,.7z,.rar,.tar,.gz,.tgz,.bz2,.xz" multiple style="display:none">
+          <input type="file" id="packInput" accept=".zip,.7z,.rar,.tar,.gz,.tgz,.bz2,.xz" style="display:none">
+        </div>
+        <div id="dmfBanner"></div>
+        <div id="patchBanner"></div>
+        <div class="list-wrap" id="listWrap"><ul id="modList"></ul></div>
+      </section>
+
+      <!-- 预设视图 -->
+      <section class="view" id="view-profiles">
+        <div class="toolbar">
+          <span style="color:var(--dim);font-size:12.5px">预设 = 整套启停+顺序快照，一键切换配置</span>
+          <span class="spacer"></span>
+          <button class="ghost" id="btnNewProfile">＋ 将当前状态存为预设</button>
+        </div>
+        <div class="cards" id="profileCards"></div>
+      </section>
+
+      <!-- 备份视图 -->
+      <section class="view" id="view-backups">
+        <div class="toolbar">
+          <span style="color:var(--dim);font-size:12.5px">归档备份 = 导入整合包/恢复时自动保存的旧 mods，可一键找回或删除</span>
+          <span class="spacer"></span>
+          <button class="ghost" id="btnRefreshBackups">刷新</button>
+        </div>
+        <div class="cards" id="backupCards"></div>
+      </section>
+
+      <!-- 关于视图 -->
+      <section class="view" id="view-about">
+        <div class="about">
+          <div class="card">
+            <h3>路径</h3>
+            <div class="kv" id="aboutPaths"></div>
+            <div style="display:flex;gap:8px;margin-top:14px">
+              <input type="text" id="dirInput" placeholder="粘贴游戏目录完整路径，例如 D:\SteamLibrary\steamapps\common\Warhammer 40,000 DARKTIDE" style="flex:1">
+              <button class="ghost" id="btnSetDir">保存目录</button>
+            </div>
+            <div class="tip" style="margin-top:8px">
+              如何找到：Steam 库 → 右键《暗潮》→ 管理 → 浏览本地文件，复制窗口地址栏路径。保存后需重启应用生效。
+            </div>
+          </div>
+          <div class="card">
+            <h3>使用说明</h3>
+            <div class="tip">
+              ① 拨动开关或拖拽调整顺序后，点击右下角 <b>保存修改</b> 才写入 mod_load_order.txt。<br>
+              ② <b>撤销</b> 丢弃界面改动，回到文件真实状态。<br>
+              ③ 每次写入前自动备份到 exe 旁的 backups 目录（保留 10 份）。<br>
+              ④ 游戏更新后 mods 会被官方禁用，届时需要重新打补丁（该功能开发中）。<br>
+              ⑤ 修改仅在下次启动游戏时生效。
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 状态栏 -->
+  <footer class="statusbar">
+    <span class="stats" id="stats">共 0 · 启用 0</span>
+    <span class="dirty" id="dirty">● 有未保存的修改</span>
+    <span class="spacer"></span>
+    <button id="btnRevert" disabled>撤销</button>
+    <button class="save" id="btnSaveMods" disabled>保存修改</button>
+  </footer>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- 右键菜单 -->
+  <div class="ctx-menu" id="ctxMenu" style="display:none">
+    <button id="ctxOpenFolder">📂 打开文件夹</button>
+    <button id="ctxCopyName">📋 复制 mod 名</button>
+    <button id="ctxNote">✏️ 备注…</button>
+    <button id="ctxDelete" class="ctx-danger" style="display:none">🗑 删除 mod 文件</button>
+    <button id="ctxRemove" class="ctx-danger" style="display:none">🗑 从清单移除（清理残留）</button>
+  </div>
+
+  <!-- 模态对话框（替代浏览器 prompt/confirm） -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal">
+      <div class="modal-title" id="modalTitle"></div>
+      <div id="modalBody"></div>
+      <div class="modal-actions">
+        <button id="modalCancel">取消</button>
+        <button class="ok" id="modalOk">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script>
+    const $ = id => document.getElementById(id);
+    const listEl = $('modList'), toastEl = $('toast'), searchEl = $('search');
+    const btnSave = $('btnSaveMods'), btnRevert = $('btnRevert'), dirtyEl = $('dirty');
+    let mods = [], dirty = false, filter = 'all', keyword = '';
+
+    function toast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => toastEl.classList.remove('show'), 2200);
+    }
+    async function api(path, opts = {}) {
+      const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+      if (!res.ok) throw new Error((await res.text()) || res.status);
+      return res.json();
+    }
+    function setDirty(v) {
+      dirty = v;
+      dirtyEl.classList.toggle('show', v);
+      btnSave.disabled = !v;
+      btnRevert.disabled = !v;
+    }
+
+    /* ---------- 应用内模态框（替代 prompt/confirm，避免浏览器风格弹窗） ---------- */
+    let modalResolve = null;
+    function showModal({ title, text, input, placeholder, okText, extra, value }) {
+      return new Promise(resolve => {
+        modalResolve = resolve;
+        // 清理上一次残留的动态按钮（防止重复插入）
+        const oldExtra = $('modalExtra');
+        if (oldExtra) oldExtra.remove();
+        $('modalTitle').textContent = title;
+        const body = $('modalBody');
+        body.innerHTML = '';
+        if (text) {
+          const p = document.createElement('div');
+          p.className = 'modal-text'; p.textContent = text;
+          body.appendChild(p);
+        }
+        if (input) {
+          const inp = document.createElement('input');
+          inp.type = 'text'; inp.placeholder = placeholder || '';
+          if (value !== undefined) inp.value = value;
+          body.appendChild(inp);
+          inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') closeModal(inp.value.trim() || null);
+            if (e.key === 'Escape') closeModal(null);
+          });
+          setTimeout(() => inp.focus(), 60);
+        }
+        $('modalOk').textContent = okText || '确定';
+        let extraBtn = null;
+        if (extra) {
+          extraBtn = document.createElement('button');
+          extraBtn.id = 'modalExtra';
+          extraBtn.textContent = extra.text || '额外选项';
+          extraBtn.style.borderColor = 'var(--border)'; extraBtn.style.color = 'var(--text)'; extraBtn.style.fontWeight = '500';
+          $('modalCancel').insertAdjacentElement('beforebegin', extraBtn);
+          extraBtn.onclick = () => closeModal(extra.value);
+        }
+        $('modal').classList.add('open');
+        $('modalOk').onclick = () => {
+          const inp = body.querySelector('input');
+          closeModal(input && inp ? inp.value.trim() || null : true);
+        };
+        $('modalCancel').onclick = () => closeModal(null);
+      });
+    }
+    function closeModal(v) {
+      $('modal').classList.remove('open');
+      if (modalResolve) { const r = modalResolve; modalResolve = null; r(v); }
+    }
+    $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(null); });
+
+    /* ---------- 导航（只绑定带 data-view 的菜单按钮；启动按钮等非导航按钮不参与） ---------- */
+    document.querySelectorAll('.sidebar button[data-view]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.sidebar button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+        const target = $('view-' + btn.dataset.view);
+        if (target) target.classList.add('active');
+        if (btn.dataset.view === 'profiles') loadProfiles();
+        if (btn.dataset.view === 'backups') loadBackups();
+        if (btn.dataset.view === 'about') loadAbout();
+      });
+    });
+
+    /* ---------- Mod 列表 ---------- */
+    function visibleMods() {
+      let list = mods;
+      if (filter === 'on') list = list.filter(m => m.enabled);
+      if (filter === 'off') list = list.filter(m => !m.enabled);
+      if (keyword) {
+        const k = keyword.toLowerCase();
+        list = list.filter(m => m.name.toLowerCase().includes(k)
+          || (m.display_name || '').toLowerCase().includes(k)
+          || (m.version || '').toLowerCase().includes(k));
+      }
+      return list;
+    }
+    function render() {
+      const list = visibleMods();
+      const enabled = list.filter(m => m.enabled);
+      const disabled = list.filter(m => !m.enabled);
+      listEl.innerHTML = '';
+      if (!list.length) {
+        const li = document.createElement('li');
+        li.className = 'empty';
+        li.textContent = mods.length ? '没有匹配的 mod' : '未找到 mod，请检查游戏目录';
+        listEl.appendChild(li);
+        return;
+      }
+      const orderMap = {};
+      enabled.forEach((m, i) => orderMap[m.name] = i + 1);
+      for (const m of [...enabled, ...disabled]) {
+        const li = document.createElement('li');
+        li.className = 'mod-row' + (m.enabled ? ' enabled-row' : ' disabled') + (m.missing ? ' missing' : '');
+        li.dataset.name = m.name;
+
+        const sw = document.createElement('label'); sw.className = 'switch';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = m.enabled;
+        cb.addEventListener('change', () => {
+          li.classList.toggle('enabled-row', cb.checked);
+          li.classList.toggle('disabled', !cb.checked);
+          setDirty(true);
+        });
+        const slider = document.createElement('span'); slider.className = 'slider';
+        sw.append(cb, slider);
+
+        const main = document.createElement('div'); main.className = 'mod-main';
+        const name = document.createElement('div'); name.className = 'mod-name';
+        // 显示名优先：localization 里的中文名（如「自动拾取」），英文文件夹名作副标题
+        const shown = (m.display_name && m.display_name !== m.name) ? m.display_name : m.name;
+        name.textContent = shown; name.title = m.name;
+        if (m.note) {
+          const nSpan = document.createElement('span'); nSpan.className = 'mod-note';
+          nSpan.textContent = ' (' + m.note + ')';
+          name.appendChild(nSpan);
+        }
+        const sub = document.createElement('div'); sub.className = 'mod-sub';
+        const subParts = [];
+        if (shown !== m.name) subParts.push(m.name);
+        if (m.version) subParts.push('v' + m.version);
+        sub.textContent = subParts.length ? subParts.join(' · ') : '未检测到版本';
+        if (m.missing) sub.textContent = '⚠ MOD缺失';
+        main.append(name, sub);
+
+        const ord = document.createElement('span'); ord.className = 'mod-order';
+        ord.textContent = m.enabled ? String(orderMap[m.name]) : '—';
+
+        const hint = document.createElement('span'); hint.className = 'drag-hint';
+        hint.textContent = '⠿';
+
+        li.append(sw, main, ord, hint);
+        listEl.appendChild(li);
+      }
+    }
+    searchEl.addEventListener('input', () => { keyword = searchEl.value.trim(); render(); });
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        filter = chip.dataset.filter; render();
+      });
+    });
+
+    /* ---------- DMF 状态（未安装时引导一键安装） ---------- */
+    let dmfInfo = null;
+    async function renderDmfBanner() {
+      const el = $('dmfBanner');
+      if (!dmfInfo) { el.innerHTML = ''; return; }
+      if (!dmfInfo.game_dir_valid) { el.innerHTML = ''; return; }  // 游戏目录都没设置，交给状态栏提示
+      if (dmfInfo.installed && !dmfInfo.autopatch_off) { el.innerHTML = ''; return; }  // 一切正常，保持界面清爽
+
+      let html;
+      if (!dmfInfo.installed) {
+        const n = dmfInfo.missing.length;
+        html = `<div class="banner err"><span class="b-text">✗ 未检测到 DMF 框架${n ? `（缺 ${n} 个组件：${dmfInfo.missing.slice(0, 3).join('、')}${n > 3 ? ' 等' : ''}）` : ''}——没有它 mods 无法加载，点一下全部搞定。</span>` +
+          `<button id="btnDmfInstall">⚡ 一键安装 DMF</button></div>`;
+      } else {
+        html = `<div class="banner warn"><span class="b-text">⚠ 自动装载插件处于禁用状态：一键安装补丁后自动恢复，mods 不再被游戏重置。</span>` +
+          `<button id="btnDmfInstall" class="neutral">恢复自动装载</button></div>`;
+      }
+      el.innerHTML = html;
+      const btn = $('btnDmfInstall');
+      if (btn) btn.addEventListener('click', async () => {
+        const ok = await showModal({
+          title: '一键安装 DMF',
+          text: '将内置的 Darktide Mod Framework 组件释放到游戏目录，已有文件自动备份；随后自动打补丁激活 mods。确认安装？',
+          okText: '安装'
+        });
+        if (!ok) return;
+        btn.disabled = true; btn.textContent = '安装中…';
+        try {
+          const r = await api('/api/dmf/install', { method: 'POST' });
+          toast(r.message || (r.ok ? '完成' : '失败'));
+          if (!r.ok && r.error) toast(r.error);
+        } catch (e) { toast('失败: ' + e.message); }
+        await load();
+      });
+    }
+
+    /* ---------- 补丁状态（只读展示；装卸请用游戏目录的 toggle_darktide_mods.bat） ---------- */
+    let patchInfo = { patched: false, tool_exists: false };
+    let gameRunning = false;
+    async function renderPatchBanner() {
+      const el = $('patchBanner');
+      if (!patchInfo.tool_exists) { el.innerHTML = ''; return; }
+      const runHint = gameRunning ? ' · 游戏运行中' : '';
+      if (patchInfo.patched) {
+        el.innerHTML =
+          `<div class="banner ok"><span class="b-text">✓ PATCH 运行正常${runHint}</span>` +
+          `<button id="btnPatchUninstall" class="danger">卸载补丁</button></div>`;
+      } else {
+        el.innerHTML =
+          `<div class="banner warn"><span class="b-text">⚠ PATCH 未启用（游戏更新后会被重置）${runHint}</span>` +
+          `<button id="btnPatchInstall">安装补丁</button></div>`;
+      }
+      const instBtn = $('btnPatchInstall');
+      if (instBtn) instBtn.addEventListener('click', async () => {
+        instBtn.disabled = true; instBtn.textContent = '安装中…';
+        try {
+          const r = await api('/api/patch/install', { method: 'POST' });
+          toast(r.message || (r.ok ? '完成' : '失败'));
+          if (!r.ok && r.error) toast(r.error);
+        } catch (e) { toast('失败: ' + e.message); }
+        await load();
+      });
+      const uninstBtn = $('btnPatchUninstall');
+      if (uninstBtn) uninstBtn.addEventListener('click', async () => {
+        const ok = await showModal({ title: '卸载补丁', text: '将还原补丁并禁用自动装载插件：启动游戏也不会自动恢复，mods 保持禁用。确认卸载？', okText: '卸载' });
+        if (!ok) return;
+        uninstBtn.disabled = true; uninstBtn.textContent = '卸载中…';
+        try {
+          const r = await api('/api/patch/uninstall', { method: 'POST' });
+          toast(r.message || (r.ok ? '完成' : '失败'));
+          if (!r.ok && r.error) toast(r.error);
+        } catch (e) { toast('失败: ' + e.message); }
+        await load();
+      });
+    }
+
+    /* 左下角大按钮：启动游戏（始终可见） */
+    async function updateLaunchBtn() {
+      const btn = $('btnLaunchSidebar');
+      if (!btn) return;
+      if (gameRunning) {
+        btn.disabled = true;
+        btn.textContent = '游戏运行中…';
+      } else {
+        btn.disabled = false;
+        btn.textContent = '▶ 启动游戏';
+      }
+    }
+    $('btnLaunchSidebar').addEventListener('click', async () => {
+      const btn = $('btnLaunchSidebar');
+      btn.disabled = true; btn.textContent = '启动中…';
+      try {
+        const r = await api('/api/game/launch', { method: 'POST' });
+        toast(r.ok ? (r.message || '游戏启动中') : ('启动失败：' + (r.error || '')));
+      } catch (e) { toast('启动失败: ' + e.message); }
+      setTimeout(() => load(), 2500);
+    });
+
+    /* 10 秒轮询：游戏运行状态/补丁状态实时刷新；游戏退出后自动装载补丁 */
+    let lastGameRunning = false;
+    async function pollStatus() {
+      try {
+        const st = await api('/api/status');
+        const wasRunning = lastGameRunning;
+        gameRunning = st.game_running || false;
+        lastGameRunning = gameRunning;
+        if (wasRunning && !gameRunning) {
+          // 游戏刚退出：自动装载补丁（未手动禁用时），下轮轮询刷新横幅
+          api('/api/patch/auto', { method: 'POST' }).catch(() => {});
+        }
+        patchInfo = st.patch || { patched: false, tool_exists: false };
+        dmfInfo = st.dmf || null;
+        renderPatchBanner();
+        renderDmfBanner();
+        updateLaunchBtn();
+      } catch (e) { /* 静默，下次再试 */ }
+    }
+    setInterval(pollStatus, 10000);
+
+    /* ---------- mod 导入（点击 / 拖拽） ---------- */
+    async function uploadModFiles(fileList) {
+      const files = [...fileList];
+      if (!files.length) { toast('请选择压缩文件'); return; }
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f, f.name);
+      toast(`正在导入 ${files.length} 个文件…`);
+      try {
+        const r = await fetch('/api/mods/import', { method: 'POST', body: fd });
+        const res = await r.json();
+        if (!res.ok) { toast('导入失败：' + (res.error || '')); return; }
+        let okN = 0;
+        let packHit = false;
+        for (const item of res.results) {
+          if (item.ok) { okN++; toast(`✓ ${item.mod} 已导入`); }
+          else if (item.is_pack) { packHit = true; }
+          else toast(`✗ ${item.file}: ${item.error}`);
+        }
+        if (packHit) {
+          // 拖进来的是整合包：自动转到整合包导入（统一弹窗选模式）
+          toast('检测到整合包，自动切换到整合包导入…');
+          await uploadPackFiles(files);
+          return;
+        }
+        await load();
+      } catch (e) { toast('导入失败: ' + e.message); }
+    }
+    $('btnImport').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', e => {
+      uploadModFiles(e.target.files);
+      e.target.value = '';
+    });
+    /* ---------- 整合包导入 ---------- */
+    async function uploadPackFiles(fileList) {
+      const files = [...fileList];
+      if (!files.length) { toast('请选择整合包压缩文件'); return; }
+      const mode = await showModal({
+        title: '导入整合包',
+        text: '「替换导入」会先把当前全部 mod 归档备份，再换成整合包内容。「合并叠加」则把包内 mod 加进现有 mods。',
+        okText: '替换导入（推荐）',
+        extra: { text: '合并叠加', value: 'merge' }
+      });
+      if (!mode) return;  // 取消
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f, f.name);
+      fd.append('mode', mode === 'merge' ? 'merge' : 'replace');
+      toast(`正在导入整合包 ${files.length} 个…（较大时请稍候）`);
+      try {
+        const r = await fetch('/api/pack/import', { method: 'POST', body: fd });
+        const res = await r.json();
+        if (!res.ok) { toast('导入失败：' + (res.error || '')); return; }
+        for (const item of res.results) {
+          if (item.ok) toast(item.message || `✓ ${item.file} 导入完成`);
+          else toast(`✗ ${item.file}: ${item.error}`);
+        }
+        await load();
+      } catch (e) { toast('导入失败: ' + e.message); }
+    }
+    $('btnPackImport').addEventListener('click', () => $('packInput').click());
+    $('packInput').addEventListener('change', e => {
+      uploadPackFiles(e.target.files);
+      e.target.value = '';
+    });
+    const listWrap = $('listWrap');
+    ['dragenter', 'dragover'].forEach(ev => listWrap.addEventListener(ev, e => {
+      e.preventDefault(); listWrap.classList.add('dragover');
+    }));
+    ['dragleave', 'drop'].forEach(ev => listWrap.addEventListener(ev, e => {
+      e.preventDefault(); listWrap.classList.remove('dragover');
+    }));
+    listWrap.addEventListener('drop', e => {
+      if (e.dataTransfer && e.dataTransfer.files.length) uploadModFiles(e.dataTransfer.files);
+    });
+
+    /* ---------- 右键菜单（mod 行） ---------- */
+    const ctxMenu = $('ctxMenu');
+    let ctxTarget = null;
+    function hideCtx() { ctxMenu.style.display = 'none'; ctxTarget = null; }
+    function copyText(t) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(() => toast('已复制: ' + t), () => toast('复制失败'));
+      } else {
+        const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy'); ta.remove(); toast('已复制: ' + t);
+      }
+    }
+    listWrap.addEventListener('contextmenu', e => {
+      const row = e.target.closest('.mod-row');
+      if (!row) return;  // 空白处保留浏览器默认菜单
+      e.preventDefault();
+      ctxTarget = row.dataset.name;
+      // 残留 mod（文件夹已不存在）：禁用打开文件夹，显示清理入口；正常 mod 显示删除
+      const isGhost = row.classList.contains('missing');
+      $('ctxOpenFolder').disabled = isGhost;
+      $('ctxDelete').style.display = isGhost ? 'none' : 'block';
+      $('ctxRemove').style.display = isGhost ? 'block' : 'none';
+      ctxMenu.style.display = 'block';
+      const x = Math.min(e.clientX, window.innerWidth - 190);
+      const y = Math.min(e.clientY, window.innerHeight - 130);
+      ctxMenu.style.left = Math.max(0, x) + 'px';
+      ctxMenu.style.top = Math.max(0, y) + 'px';
+    });
+    document.addEventListener('click', hideCtx);
+    document.addEventListener('scroll', hideCtx, true);
+    window.addEventListener('blur', hideCtx);
+    $('ctxOpenFolder').addEventListener('click', async () => {
+      const name = ctxTarget;  // 先捕获，避免菜单关闭逻辑清空目标
+      hideCtx();
+      if (!name || name === 'null') { toast('请重新右键 mod 后再试'); return; }
+      try {
+        const r = await api('/api/mods/' + encodeURIComponent(name) + '/open_folder', { method: 'POST' });
+        toast(r.message || (r.ok ? '已打开' : '打开失败'));
+        if (!r.ok && r.error) toast(r.error);
+      } catch (e) { toast('打开失败: ' + e.message); }
+    });
+    $('ctxRemove').addEventListener('click', async () => {
+      const name = ctxTarget;
+      hideCtx();
+      if (!name || name === 'null') { toast('请重新右键 mod 后再试'); return; }
+      const ok = await showModal({
+        title: '从清单移除',
+        text: `从 mod_load_order.txt 中移除「${name}」？该 mod 文件夹已不存在，移除后列表不再显示。`,
+        okText: '移除'
+      });
+      if (!ok) return;
+      try {
+        const r = await api('/api/mods/' + encodeURIComponent(name) + '/remove_from_load_order', { method: 'POST' });
+        toast(r.message || (r.ok ? '已移除' : '失败'));
+        await load();
+      } catch (e) { toast('移除失败: ' + e.message); }
+    });
+    $('ctxDelete').addEventListener('click', async () => {
+      const name = ctxTarget;
+      hideCtx();
+      if (!name || name === 'null') { toast('请重新右键 mod 后再试'); return; }
+      const ok = await showModal({
+        title: '删除 mod 文件',
+        text: `将彻底删除「${name}」：\n· mod 文件夹移入回收站（可找回）\n· 从启停清单移除\n· 清除备注\n\n确认删除？`,
+        okText: '确认删除'
+      });
+      if (!ok) return;
+      try {
+        const r = await api('/api/mods/' + encodeURIComponent(name), { method: 'DELETE' });
+        toast(r.message || (r.ok ? '已删除' : '删除失败'));
+        if (!r.ok && r.error) toast(r.error);
+        await load();
+      } catch (e) { toast('删除失败: ' + e.message); }
+    });
+    $('ctxCopyName').addEventListener('click', () => {
+      const name = ctxTarget;
+      hideCtx();
+      if (!name || name === 'null') { toast('请重新右键 mod 后再试'); return; }
+      copyText(name);
+    });
+    $('ctxNote').addEventListener('click', async () => {
+      const name = ctxTarget;
+      hideCtx();
+      if (!name || name === 'null') { toast('请重新右键 mod 后再试'); return; }
+      const cur = (mods.find(m => m.name === name) || {}).note || '';
+      const note = await showModal({
+        title: '设置备注',
+        input: true,
+        value: cur,
+        placeholder: '备注显示为：mod名(备注)，留空保存 = 清除',
+        okText: '保存'
+      });
+      if (note === null) return;  // 取消
+      try {
+        const r = await api('/api/mods/' + encodeURIComponent(name) + '/note', {
+          method: 'POST',
+          body: JSON.stringify({ note })
+        });
+        toast(r.ok ? (r.note ? '✓ 备注已保存' : '✓ 备注已清除') : ('失败: ' + (r.error || '')));
+        await load();
+      } catch (e) { toast('保存失败: ' + e.message); }
+    });
+
+    /* ---------- 数据 ---------- */
+    async function load() {
+      const [modsRes, statusRes] = await Promise.all([api('/api/mods'), api('/api/status')]);
+      mods = modsRes.mods;
+      patchInfo = statusRes.patch || { patched: false, tool_exists: false };
+      dmfInfo = statusRes.dmf || null;
+      gameRunning = statusRes.game_running || false;
+      await renderPatchBanner();
+      await renderDmfBanner();
+      updateLaunchBtn();
+      const en = mods.filter(m => m.enabled).length;
+      $('stats').innerHTML = `共 <b>${mods.length}</b> 个 mod · 启用 <b>${en}</b> 个`;
+      const st2 = statusRes.game_dir_valid;
+      $('gameStatus').innerHTML = st2
+        ? `<span class="dot"></span>已连接 · ${statusRes.game_dir}`
+        : `<span class="dot" style="background:var(--red)"></span>未找到游戏目录 · 请到「关于」页设置`;
+      render();
+      setDirty(false);
+      // 自动装载：补丁未打且未手动禁用时自动补打（幂等）
+      try {
+        const ar = await api('/api/patch/auto', { method: 'POST' });
+        if (ar && ar.patched !== undefined && ar.patched) {
+          patchInfo = ar;
+          await renderPatchBanner();
+        }
+      } catch (e) { /* 忽略 */ }
+    }
+    function collectEnabledOrder() {
+      const order = [];
+      const seen = new Set();
+      // 1. 当前可见且启用的行（含搜索/筛选过滤后的部分，顺序 = 用户拖拽结果）
+      for (const li of listEl.querySelectorAll('.mod-row.enabled-row')) {
+        const name = li.dataset.name;
+        if (!seen.has(name)) { order.push(name); seen.add(name); }
+      }
+      // 2. 被过滤隐藏但仍为启用状态的 mod（按数据顺序追加，保持原相对顺序，防止"保存后全部被禁用"）
+      for (const m of mods) {
+        if (m.enabled && !seen.has(m.name)) {
+          order.push(m.name);
+          seen.add(m.name);
+        }
+      }
+      return order;
+    }
+    btnSave.addEventListener('click', async () => {
+      const order = collectEnabledOrder();
+      if (!order.length) {
+        const ok = await showModal({ title: '确认', text: '一个都不启用？确定要把所有 mod 关掉吗？' });
+        if (!ok) return;
+      }
+      try {
+        const r = await api('/api/order', { method: 'POST', body: JSON.stringify({ mods: order }) });
+        setDirty(false);
+        toast(`已保存：启用 ${r.enabled.length} 个${r.disabled.length ? '，禁用 ' + r.disabled.length + ' 个' : ''}`);
+        await load();
+      } catch (e) { toast('保存失败: ' + e.message); }
+    });
+    btnRevert.addEventListener('click', () => { load(); toast('已撤销，恢复为文件中的状态'); });
+    $('btnRefresh').addEventListener('click', () => load());
+
+    new Sortable(listEl, {
+      filter: '.disabled',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      chosenClass: 'sortable-chosen',
+      onEnd: () => setDirty(true)
+    });
+
+    /* ---------- 归档备份 ---------- */
+    async function loadBackups() {
+      let res;
+      try { res = await api('/api/backups'); } catch (e) { $('backupCards').innerHTML = '<div class="tip">读取备份失败</div>'; return; }
+      const cards = $('backupCards');
+      cards.innerHTML = '';
+      const packs = res.backups.filter(b => b.type === 'pack');
+      const dmfs = res.backups.filter(b => b.type === 'dmf');
+      if (!packs.length && !dmfs.length) {
+        cards.innerHTML = '<div class="tip">暂无归档备份。导入整合包（替换模式）或恢复操作会自动把旧 mods 归档到这里，之后可在此一键找回。</div>';
+        return;
+      }
+      const mkCard = (b) => {
+        const card = document.createElement('div'); card.className = 'profile-card';
+        const nm = document.createElement('div'); nm.className = 'pc-name';
+        nm.textContent = b.type === 'pack' ? `整合包归档 · ${b.created}` : `DMF 组件备份 · ${b.created}`;
+        const meta = document.createElement('div'); meta.className = 'pc-meta';
+        if (b.type === 'pack') {
+          const names = (b.mods || []).slice(0, 4).join('、');
+          meta.textContent = `${b.count} 个 mod${b.has_load_order ? ' · 含启停清单' : ''}${names ? '（' + names + (b.count > 4 ? '…' : '') + '）' : ''}`;
+        } else {
+          meta.textContent = `${b.count} 个文件（DMF 框架组件）`;
+        }
+        const acts = document.createElement('div'); acts.className = 'pc-actions';
+        if (b.type === 'pack') {
+          const restore = document.createElement('button'); restore.className = 'pc-apply'; restore.textContent = '恢复此备份';
+          restore.addEventListener('click', async () => {
+            const ok = await showModal({
+              title: '恢复备份',
+              text: `恢复 ${b.created} 的整合包归档？当前 mods 会先归档备份，再换回这套（${b.count} 个 mod）。`,
+              okText: '恢复'
+            });
+            if (!ok) return;
+            restore.disabled = true; restore.textContent = '恢复中…';
+            try {
+              const r = await api('/api/backups/' + encodeURIComponent(b.id) + '/restore', { method: 'POST' });
+              toast(r.message || (r.ok ? '恢复完成' : '恢复失败'));
+              if (!r.ok && r.error) toast(r.error);
+            } catch (e) { toast('恢复失败: ' + e.message); }
+            await load(); loadBackups();
+          });
+          acts.appendChild(restore);
+        }
+        const del = document.createElement('button'); del.className = 'pc-del'; del.textContent = '删除';
+        del.addEventListener('click', async () => {
+          const ok = await showModal({ title: '删除备份', text: `删除 ${b.created} 的备份？此操作不可恢复。`, okText: '删除' });
+          if (!ok) return;
+          await api('/api/backups/' + encodeURIComponent(b.id), { method: 'DELETE' });
+          loadBackups();
+        });
+        acts.appendChild(del);
+        card.append(nm, meta, acts);
+        cards.appendChild(card);
+      };
+      packs.forEach(mkCard);
+      dmfs.forEach(mkCard);
+    }
+    $('btnRefreshBackups').addEventListener('click', () => loadBackups());
+
+    /* ---------- 预设 ---------- */
+    async function loadProfiles() {
+      const res = await api('/api/profiles');
+      const cards = $('profileCards');
+      cards.innerHTML = '';
+      const nw = document.createElement('div');
+      nw.className = 'new-profile';
+      nw.innerHTML = '<span style="font-size:20px">＋</span><span>将当前启停+顺序存为预设</span>';
+      nw.addEventListener('click', saveProfile);
+      cards.appendChild(nw);
+      for (const p of res.profiles) {
+        const card = document.createElement('div'); card.className = 'profile-card';
+        const nm = document.createElement('div'); nm.className = 'pc-name'; nm.textContent = p.name;
+        const meta = document.createElement('div'); meta.className = 'pc-meta';
+        meta.textContent = `${p.count} 个 mod · ${p.created || ''}`;
+        const acts = document.createElement('div'); acts.className = 'pc-actions';
+        const apply = document.createElement('button'); apply.className = 'pc-apply'; apply.textContent = '应用';
+        apply.addEventListener('click', async () => {
+          const ok = await showModal({ title: '应用预设', text: `应用预设「${p.name}」？当前启停和顺序将被替换。`, okText: '应用' });
+          if (!ok) return;
+          try {
+            await api('/api/profiles/' + encodeURIComponent(p.name) + '/apply', { method: 'POST' });
+            toast('预设已应用');
+            setDirty(false);
+            await load();
+          } catch (e) { toast('应用失败: ' + e.message); }
+        });
+        const del = document.createElement('button'); del.className = 'pc-del'; del.textContent = '删除';
+        del.addEventListener('click', async () => {
+          const ok = await showModal({ title: '删除预设', text: `删除预设「${p.name}」？此操作不可恢复。`, okText: '删除' });
+          if (!ok) return;
+          await api('/api/profiles/' + encodeURIComponent(p.name), { method: 'DELETE' });
+          loadProfiles();
+        });
+        acts.append(apply, del);
+        card.append(nm, meta, acts);
+        cards.appendChild(card);
+      }
+    }
+    async function saveProfile() {
+      const name = await showModal({ title: '保存预设', input: true, placeholder: '例如：打宝流', okText: '保存' });
+      if (!name) return;
+      try {
+        await api('/api/profiles', { method: 'POST', body: JSON.stringify({ name }) });
+        toast('预设已保存');
+        loadProfiles();
+      } catch (e) { toast('保存失败: ' + e.message); }
+    }
+    $('btnNewProfile').addEventListener('click', saveProfile);
+
+    /* ---------- 关于 ---------- */
+    async function loadAbout() {
+      const st = await api('/api/status');
+      const valid = st.game_dir_valid ? '✓ 已识别' : '✗ 未找到（请在下框设置）';
+      $('aboutPaths').innerHTML =
+        `<span class="k">游戏目录</span><span class="v">${st.game_dir}（${valid}）</span>` +
+        `<span class="k">mods 目录</span><span class="v">${st.mods_dir}</span>` +
+        `<span class="k">加载清单</span><span class="v">mods\\mod_load_order.txt</span>` +
+        `<span class="k">预设目录</span><span class="v">${st.profiles_dir}</span>` +
+        `<span class="k">日志文件</span><span class="v">exe 同目录 app.log</span>`;
+      $('dirInput').value = '';
+    }
+    $('btnSetDir').addEventListener('click', async () => {
+      const dir = $('dirInput').value.trim();
+      if (!dir) return toast('请输入游戏目录路径');
+      try {
+        const r = await api('/api/settings/game_dir', { method: 'POST', body: JSON.stringify({ path: dir }) });
+        if (r.ok) toast('目录已保存，重启应用后生效');
+        else toast('无效目录：' + r.error);
+      } catch (e) { toast('保存失败: ' + e.message); }
+    });
+
+    load().catch(e => { $('stats').textContent = '加载失败: ' + e.message; });
+  </script>
+</body>
+</html>

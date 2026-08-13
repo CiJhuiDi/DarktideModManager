@@ -1,0 +1,30 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---- 构建产物 ----
+build/
+dist/
+7zbin/
+
+# ---- 运行生成（本地数据，含本机路径，勿提交）----
+config.json
+app.log
+notes.json
+backups/
+profiles/
+release/
+
+# ---- 测试临时目录 ----
+mock/
+mock_*/
+mock_fresh/
+mock_pack/
+mock_bak/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
