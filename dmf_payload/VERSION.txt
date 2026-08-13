@@ -1,0 +1,14 @@
+DMF 内置组件（一键安装用）
+==========================
+来源：实测可用的整合包环境（多位整合包作者的公开整合包）
+- mods/base/            旧版加载器本体（mod_manager.lua + function/*）——负责读取
+                        mod_load_order.txt 并按序加载 mod
+- mods/dmf/             Darktide Mod Framework（mod 形态，dmf.mod + scripts/mods/dmf/*）
+                        提供 DMF API（mod options / hooks / chat commands / keybinds 等）
+                        官方：Nexus https://www.nexusmods.com/warhammer40kdarktide/mods/8
+                        GitHub https://github.com/Darktide-Mod-Framework/Darktide-Mod-Framework
+- tools/dtkit-patch.exe dtkit-patch 0.1.8（https://github.com/ManShanko/dtkit-patch）
+- binaries/plugins/_dt_mod_autopatch.dll  自动装载插件（游戏启动时自动补打补丁）
+
+注意：base 与 dmf 均为系统组件，DMF 自动加载，不需要也不允许写进 mod_load_order.txt。
+更新方式：将新版本组件覆盖到 dmf_payload/ 对应路径后重新打包即可。
