@@ -1183,6 +1183,23 @@ class NoteBody(BaseModel):
     note: str
 
 
+class UrlBody(BaseModel):
+    url: str
+
+
+@app.post("/api/open_url")
+def api_open_url(body: UrlBody):
+    """在系统默认浏览器打开链接（关于页项目主页用）"""
+    url = body.url.strip()
+    if not url.startswith(("https://", "http://")):
+        return {"ok": False, "error": "无效链接"}
+    try:
+        webbrowser.open(url)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.post("/api/mods/{name}/note")
 def api_set_note(name: str, body: NoteBody):
     """设置/清除 mod 备注（空字符串 = 清除）；显示为 mod名(备注)"""

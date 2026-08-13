@@ -1,5 +1,5 @@
 ========================================
-  暗潮 Mod 管理器 DarktideModManager v0.2.1
+  暗潮 Mod 管理器 DarktideModManager v0.2.2
 ========================================
 
 一款为《战锤40K：暗潮》(Darktide) 设计的轻量 Mod 管理器。
@@ -159,3 +159,5 @@ A: 管理器卸载补丁时会同时禁用游戏的"自动装载"插件，mods �
 - mod 整合包作者们（测试环境参考）
 - dtkit-patch（https://github.com/ManShanko/dtkit-patch）
 - 内置 DMF 组件随管理器一起分发，仅用于安装到用户自己的游戏目录
+
+项目主页：https://github.com/CiJhuiDi/DarktideModManager
