@@ -1,5 +1,7 @@
 # 更新历史（Changelog）
 
+项目主页：https://github.com/CiJhuiDi/DarktideModManager
+
 ## v0.2.1（2026-08-13）
 **根目录整洁化（A+B 方案）**
 - 整合包导入不再拷贝根目录的说明文件/脚本（.bat/.txt/.md）——打补丁与启动游戏已由管理器接管，反复装包不再堆积重复文件

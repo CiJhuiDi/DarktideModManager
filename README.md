@@ -34,7 +34,7 @@
 
 ### 直接使用
 
-从 [Releases](https://github.com/) 下载最新 `DarktideModManager_vX.Y.Z.zip`，解压后得到一个文件夹：
+从 [Releases](https://github.com/CiJhuiDi/DarktideModManager/releases) 下载最新 `DarktideModManager_vX.Y.Z.zip`，解压后得到一个文件夹：
 
 ```
 DarktideModManager_vX.Y.Z/

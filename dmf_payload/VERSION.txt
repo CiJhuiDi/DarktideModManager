@@ -1,5 +1,7 @@
 DMF 内置组件（一键安装用）
 ==========================
+项目主页：https://github.com/CiJhuiDi/DarktideModManager
+
 来源：实测可用的整合包环境（多位整合包作者的公开整合包）
 - mods/base/            旧版加载器本体（mod_manager.lua + function/*）——负责读取
                         mod_load_order.txt 并按序加载 mod
