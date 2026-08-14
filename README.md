@@ -11,6 +11,7 @@
 
 **开箱即用**
 - **一键安装 DMF**：内置加载器 base + DMF（含中文汉化）+ dtkit-patch + 自动装载插件，检测缺失自动提示，一键释放并打补丁
+- **覆盖更新 DMF**：DMF 已装也随时可点「🔄 重新安装框架」，强制用内置组件覆盖（旧文件自动备份可找回），用于更新版本或清除旧整合包残留的私货
 - **整合包一键导入**：zip / 7z / rar / tar.gz，自动识别结构（兼容外层套目录），两种模式：
   - **替换导入**（推荐）：旧 mods 整体归档到 backups，mods 始终保持当前一套；根目录旧残留文件自动收走
   - **合并叠加**：包内 mod 加进现有 mods（同名覆盖）
@@ -20,13 +21,17 @@
 - 启停开关、拖拽排序、搜索筛选（中英文名均可搜）
 - **中文显示名**：自动读取 mod 本地化文件，列表显示中文名（如「自动拾取」「智能队友AI」），英文原名作副标题
 - 版本号解析、缺失（残留）检测
-- **右键菜单**：打开文件夹 / 复制 mod 名 / 备注（显示为 `Mod名(备注)`）/ 删除 mod 文件（进回收站可找回）/ 清理清单残留
-- **方案预设**：启停+顺序一键切换（打宝流 / 拍照流 / 纯净流…）
+- **右键菜单**：打开文件夹 / 复制 mod 名 / 备注（显示为 `Mod名(备注)`）/ 删除 mod 文件（进回收站可找回）/ 清理清单残留 / **多选模式**（批量启用/禁用/删除）
+- **方案预设**：启停+顺序一键切换（打宝流 / 拍照流 / 纯净流…），应用前预览启停变化
+- **依赖检查**：缺依赖 / 循环依赖 / 加载顺序建议徽标提示
+- **导入增强**：自动识别单 mod / 整合包 / 清单 txt / 文件夹，导入前差异预览（新增/更新/移除）
+- **导出**：全部导出 / 按启用导出 / 仅导出清单（干净的 mod_load_order.txt），导出包可直接再导入
 
 **补丁与启动**
 - 补丁状态检测、一键安装/卸载（dtkit-patch）、启动游戏前自动补打
 - 一键启动游戏（绕过启动器，带 Steam 登录/运行状态保护）
 - 防崩溃设计：绝不动 patch_999 / mod_loader 文件，卸载走"禁用自动装载 + 还原数据库"路线
+- **游戏运行防呆**：游戏运行时自动锁定 mod 增删改（按钮变灰禁用 + 后端双重拦截），防止游戏运行中动 mods 目录导致崩溃/丢 mod
 
 **工程细节**：单实例保护、窗口位置记忆、每次写入自动备份、运行日志
 
@@ -71,12 +76,16 @@ build.bat   # 或手动执行：
 
 ```bash
 python app.py --port 8317 --browser   # 起测试服务（另开终端）
+python tools/build_mock.py  # 构建干净 mock（每次跑测试前执行，防残留污染）
 python test_api.py      # API 全流程（需干净 mock，先跑）
 python test_import.py   # mod 导入
 python test_formats.py  # 多格式导入（rar 用例需系统安装 WinRAR）
 python test_dmf.py      # DMF 一键安装（自建 mock_fresh）
 python test_backups.py  # 归档备份管理（自建 mock_bak）
 python test_pack.py     # 整合包导入（真实整合包场景可选，需自备样例包）
+python tools/test_guard.py     # 游戏运行时防呆（9 项）
+python tools/test_simulate.py  # 模拟游戏运行环境（6 项）
+python tools/test_dmf_force.py # DMF 覆盖更新
 ```
 
 ## 📁 目录结构
@@ -108,7 +117,7 @@ Python · FastAPI · pywebview（Edge WebView2）· 原生 JS · PyInstaller
 | tools/dtkit-patch.exe | [dtkit-patch](https://github.com/ManShanko/dtkit-patch) 0.1.8 |
 | binaries/plugins/_dt_mod_autopatch.dll | 自动装载插件（游戏启动时自动补打补丁） |
 
-组件核心与官方 master 一致（localization 为中文汉化版，来自实测可用的整合包环境）。更新方式：覆盖 `dmf_payload/` 对应路径后重新打包。
+组件核心为官方 master 原版，localization 为本项目自译汉化（无广告、无第三方署名）。更新方式：覆盖 `dmf_payload/` 对应路径后重新打包。
 
 ## ⚠️ 免责声明
 

@@ -59,7 +59,9 @@
   .sidebar button:hover { background: var(--panel2); color: var(--text); }
   .sidebar button.active { background: #22304a; color: var(--accent); font-weight: 600; }
   .sidebar .icon { font-size: 15px; width: 18px; text-align: center; }
-  .sidebar .foot { margin-top: auto; font-size: 11px; color: #5a6275; padding: 8px 12px; }
+  .sidebar .foot { margin-top: auto; font-size: 11px; color: #5a6275; padding: 8px 12px; text-align: center; }
+  .sidebar .foot .foot-ver { font-size: 12px; color: #7a8398; font-weight: 600; }
+  .sidebar .foot .foot-name { font-size: 10.5px; color: #5a6275; margin-top: 2px; }
   .sidebar .launch-btn {
     margin: 6px 4px 2px; padding: 14px 10px;
     background: linear-gradient(135deg, #1e6b45, #268a58);
@@ -132,6 +134,7 @@
   }
   .switch input:checked + .slider { background: var(--green); }
   .switch input:checked + .slider::before { transform: translateX(17px); background: #fff; }
+  .switch.locked .slider { opacity: .4; cursor: not-allowed; }
 
   .mod-main { flex: 1; min-width: 0; }
   .mod-name { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -164,6 +167,23 @@
   .banner button.danger:hover { background: #944040; }
   .banner button.neutral { background: var(--panel2); border-color: var(--border); color: var(--text); font-weight: 500; }
   .banner button.neutral:hover { background: #2c3340; }
+  .banner button.locked, .ghost.locked, .statusbar button.locked { opacity: .45; cursor: not-allowed; filter: grayscale(1); }
+  #editLockHint { display: none; align-items: center; gap: 6px; margin: 0 0 10px; padding: 8px 12px;
+    background: rgba(255,180,84,.08); border: 1px solid rgba(255,180,84,.3); border-radius: 6px;
+    color: var(--warn); font-size: 12.5px; }
+  .batch-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 8px 12px;
+    background: rgba(77,163,255,.06); border: 1px solid rgba(77,163,255,.25); border-radius: 6px; }
+  .batch-bar .b-text { font-size: 12.5px; color: var(--text); margin-right: auto; }
+  .batch-bar .ghost { padding: 3px 12px; font-size: 12px; }
+  .ghost.danger { border-color: #a84444 !important; color: #ff8a8a !important; }
+  .mod-row .row-check { width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--accent); cursor: pointer; }
+  .mod-row.batch-selected { background: rgba(77,163,255,.08); }
+  .mod-row.batch-selected .mod-main { color: var(--accent); }
+  .mod-row.batch-mode { cursor: pointer; }
+  .mod-row.batch-mode:hover { outline: 1px solid rgba(77,163,255,.4); }
+  .batch-mode-hint { display: none; align-items: center; gap: 6px; margin: 0 0 10px; padding: 8px 12px;
+    background: rgba(77,163,255,.1); border: 1px solid rgba(77,163,255,.4); border-radius: 6px;
+    color: var(--accent); font-size: 12.5px; }
   .list-wrap.dragover { outline: 2px dashed var(--accent); outline-offset: -6px; background: rgba(77,163,255,.05); }
 
   /* ---------- 预设视图 ---------- */
@@ -251,14 +271,39 @@
     box-shadow: 0 18px 50px rgba(0,0,0,.55); width: 360px; max-width: 90vw;
     padding: 20px; display: flex; flex-direction: column; gap: 14px;
   }
+  .modal.wide { width: 520px; }
   .modal-title { font-size: 14.5px; font-weight: 600; }
   .modal-text { font-size: 13px; color: var(--dim); line-height: 1.6; }
+  .modal-lines { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; padding: 2px 2px; }
+  .modal-line { font-size: 12.5px; line-height: 1.5; padding: 3px 8px; border-radius: 5px; background: var(--panel2); color: var(--text); }
+  .modal-line.ml-add { color: #7ee2a8; background: rgba(62,207,142,.08); }
+  .modal-line.ml-del { color: #ff9b9b; background: rgba(255,107,107,.08); }
+  .modal-line.ml-upd { color: #ffc46b; background: rgba(255,180,84,.08); }
+  .modal-line.ml-same { color: var(--dim); }
+  .modal-line.ml-info { color: var(--dim); font-size: 12px; background: none; padding: 4px 8px 0; }
   .modal input[type="text"] {
     background: var(--panel2); border: 1px solid var(--border); color: var(--text);
     border-radius: 7px; padding: 9px 12px; font-size: 13.5px; outline: none;
+    width: 100%;
   }
   .modal input[type="text"]:focus { border-color: var(--accent); }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  .modal-actions button.modal-extra {
+    background: var(--panel2); color: var(--text); border-color: var(--border); font-weight: 500;
+  }
+  .modal-actions button.modal-extra:hover { border-color: var(--accent); color: var(--accent); }
+  .modal-choices { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+  .modal-choice {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 10px 12px; font-size: 13px; cursor: pointer; text-align: left;
+    transition: border-color .12s, background .12s;
+  }
+  .modal-choice:hover { border-color: var(--accent); }
+  .modal-choice.selected { border-color: var(--accent); background: rgba(77,163,255,.1); }
+  .modal-choice-title { font-weight: 600; }
+  .modal-choice-desc { font-size: 11.5px; color: var(--dim); }
+  .modal-actions { margin-top: 6px; }
   .modal-actions button {
     background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
     border-radius: 7px; padding: 7px 16px; font-size: 12.5px; cursor: pointer; transition: all .12s;
@@ -282,11 +327,16 @@
   .ctx-menu button:disabled:hover { background: none; }
   .ctx-menu .ctx-danger { color: #ff8a8a; }
   .mod-note { color: var(--dim); font-style: italic; font-weight: 400; }
+  .dep-badge { font-size: 11px; padding: 1px 7px; border-radius: 8px; margin-left: 6px; white-space: nowrap; }
+  .dep-badge.dep-bad { background: rgba(255,107,107,.15); color: #ff9b9b; border: 1px solid rgba(255,107,107,.4); }
+  .dep-badge.dep-cycle { background: rgba(255,180,84,.12); color: #ffc46b; border: 1px solid rgba(255,180,84,.4); }
+  .dep-badge.dep-order { background: rgba(77,163,255,.12); color: #8fc1ff; border: 1px solid rgba(77,163,255,.4); }
   .link-btn {
     background: var(--panel2); color: var(--accent); border: 1px solid var(--border);
     border-radius: 5px; padding: 2px 10px; font-size: 12px; cursor: pointer;
   }
   .link-btn:hover { border-color: var(--accent); }
+  .dim { color: var(--dim); }
 </style>
 </head>
 <body>
@@ -305,7 +355,7 @@
       <button data-view="profiles"><span class="icon">❖</span>预设</button>
       <button data-view="backups"><span class="icon">↺</span>备份</button>
       <button data-view="about"><span class="icon">i</span>关于</button>
-      <div class="foot">v0.2.3 · DMM 暗潮MOD管理器</div>
+      <div class="foot"><div class="foot-ver">DMM v0.3.0</div><div class="foot-name">暗潮 MOD 管理器</div></div>
     </nav>
 
     <main class="content">
@@ -319,14 +369,26 @@
             <button class="chip" data-filter="off">已禁用</button>
           </div>
           <span class="spacer"></span>
-          <button class="ghost" id="btnImport" style="border-color:#2a9d68;color:#3ecf8e">＋ 导入 mod</button>
-          <button class="ghost" id="btnPackImport" style="border-color:#d4872a;color:#ffb454">📦 导入整合包</button>
+          <button class="ghost" id="btnImport" style="border-color:#2a9d68;color:#3ecf8e">＋ 导入</button>
+          <button class="ghost" id="btnExport" style="border-color:#8b6ae0;color:#c4a7ff">📤 导出</button>
           <button class="ghost" id="btnRefresh">刷新</button>
           <input type="file" id="fileInput" accept=".zip,.7z,.rar,.tar,.gz,.tgz,.bz2,.xz" multiple style="display:none">
-          <input type="file" id="packInput" accept=".zip,.7z,.rar,.tar,.gz,.tgz,.bz2,.xz" style="display:none">
+          <input type="file" id="txtInput" accept=".txt" multiple style="display:none">
+          <input type="file" id="dirInputPick" webkitdirectory multiple style="display:none">
         </div>
         <div id="dmfBanner"></div>
         <div id="patchBanner"></div>
+        <div id="depBanner"></div>
+        <div id="editLockHint"></div>
+        <div id="batchBar" class="batch-bar" style="display:none">
+          <span class="b-text">已选 <b id="batchCount">0</b> 个</span>
+          <button class="ghost" id="btnBatchEnable" style="border-color:#2a9d68;color:#3ecf8e">✓ 启用</button>
+          <button class="ghost" id="btnBatchDisable" style="border-color:#d4872a;color:#ffb454">✗ 禁用</button>
+          <button class="ghost danger" id="btnBatchDelete">🗑 删除</button>
+          <button class="ghost" id="btnBatchClear">取消选择</button>
+          <button class="ghost" id="btnBatchExit">退出多选</button>
+        </div>
+        <div id="batchModeHint" class="batch-mode-hint" style="display:none">☑ 多选模式：点击 mod 行选择，右键或点此退出</div>
         <div class="list-wrap" id="listWrap"><ul id="modList"></ul></div>
       </section>
 
@@ -365,6 +427,17 @@
             </div>
           </div>
           <div class="card">
+            <h3>模拟环境（测试专用）</h3>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <button class="ghost" id="btnSimOn">🎮 模拟游戏运行</button>
+              <button class="ghost" id="btnSimOff">停止模拟</button>
+              <span class="dim" id="simState" style="font-size:12.5px"></span>
+            </div>
+            <div class="tip" style="margin-top:8px">
+              无需真开游戏，即可测试「游戏运行中锁定 mod 编辑」等防呆逻辑。仅测试用，退出应用前记得停止模拟。
+            </div>
+          </div>
+          <div class="card">
             <h3>使用说明</h3>
             <div class="tip">
               ① 拨动开关或拖拽调整顺序后，点击右下角 <b>保存修改</b> 才写入 mod_load_order.txt。<br>
@@ -395,6 +468,7 @@
     <button id="ctxOpenFolder">📂 打开文件夹</button>
     <button id="ctxCopyName">📋 复制 mod 名</button>
     <button id="ctxNote">✏️ 备注…</button>
+    <button id="ctxBatch" style="display:none">☑ 多选模式</button>
     <button id="ctxDelete" class="ctx-danger" style="display:none">🗑 删除 mod 文件</button>
     <button id="ctxRemove" class="ctx-danger" style="display:none">🗑 从清单移除（清理残留）</button>
   </div>
@@ -417,6 +491,7 @@
     const listEl = $('modList'), toastEl = $('toast'), searchEl = $('search');
     const btnSave = $('btnSaveMods'), btnRevert = $('btnRevert'), dirtyEl = $('dirty');
     let mods = [], dirty = false, filter = 'all', keyword = '';
+    let depInfo = { missing: [], cycles: [], order_hints: [], total: 0, bad: 0 };
 
     function toast(msg) {
       toastEl.textContent = msg;
@@ -438,19 +513,36 @@
 
     /* ---------- 应用内模态框（替代 prompt/confirm，避免浏览器风格弹窗） ---------- */
     let modalResolve = null;
-    function showModal({ title, text, input, placeholder, okText, extra, value }) {
+    function showModal({ title, text, textAfter, input, placeholder, okText, extra, value, wide, choices, choicesRequired, choicesInstant, lines }) {
       return new Promise(resolve => {
         modalResolve = resolve;
-        // 清理上一次残留的动态按钮（防止重复插入）
-        const oldExtra = $('modalExtra');
-        if (oldExtra) oldExtra.remove();
+        // 清理上一次残留的动态按钮（用类名清全部，避免重复 id 只删第一个导致按钮增生）
+        document.querySelectorAll('.modal-extra').forEach(b => b.remove());
+        $('modal').classList.toggle('wide', !!wide);
         $('modalTitle').textContent = title;
         const body = $('modalBody');
         body.innerHTML = '';
-        if (text) {
+        if (text && !textAfter) {
           const p = document.createElement('div');
           p.className = 'modal-text'; p.textContent = text;
           body.appendChild(p);
+        }
+        if (lines) {
+          // 结构化行列表（lines: [{text, cls?}] 或字符串）
+          const wrap = document.createElement('div');
+          wrap.className = 'modal-lines';
+          for (const ln of lines) {
+            const row = document.createElement('div');
+            if (typeof ln === 'string') {
+              row.textContent = ln;
+              row.className = 'modal-line';
+            } else {
+              row.textContent = ln.text;
+              row.className = 'modal-line' + (ln.cls ? ' ' + ln.cls : '');
+            }
+            wrap.appendChild(row);
+          }
+          body.appendChild(wrap);
         }
         if (input) {
           const inp = document.createElement('input');
@@ -463,21 +555,69 @@
           });
           setTimeout(() => inp.focus(), 60);
         }
+        if (textAfter) {
+          const p = document.createElement('div');
+          p.className = 'modal-text'; p.textContent = textAfter;
+          body.appendChild(p);
+        }
+        if (choices) {
+          // 单选列表（choices: [{text, value, desc?}]）：点击选中（高亮），确定时带上选中值
+          // choicesInstant=true 时点击即关闭（直接生效）
+          let selectedValue = null;
+          const wrap = document.createElement('div');
+          wrap.className = 'modal-choices';
+          const btns = [];
+          for (const c of choices) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'modal-choice';
+            if (c.text) {
+              const t = document.createElement('span');
+              t.className = 'modal-choice-title'; t.textContent = c.text;
+              b.appendChild(t);
+            }
+            if (c.desc) {
+              const d = document.createElement('span');
+              d.className = 'modal-choice-desc'; d.textContent = c.desc;
+              b.appendChild(d);
+            }
+            b.onclick = () => {
+              selectedValue = c.value;
+              if (choicesInstant) closeModal({ value: c.value, name: '', selected: true });
+              else btns.forEach(x => x.classList.toggle('selected', x === b));
+            };
+            btns.push(b);
+            wrap.appendChild(b);
+          }
+          body.appendChild(wrap);
+          // 让确定按钮能读到选中值
+          $('modalOk').onclick = () => {
+            const inp = body.querySelector('input');
+            const name = input && inp ? inp.value.trim() : '';
+            closeModal({ value: selectedValue, name, selected: selectedValue !== null });
+          };
+        } else {
+          $('modalOk').onclick = () => {
+            const inp = body.querySelector('input');
+            closeModal(input && inp ? inp.value.trim() || null : true);
+          };
+        }
         $('modalOk').textContent = okText || '确定';
-        let extraBtn = null;
         if (extra) {
-          extraBtn = document.createElement('button');
-          extraBtn.id = 'modalExtra';
-          extraBtn.textContent = extra.text || '额外选项';
-          extraBtn.style.borderColor = 'var(--border)'; extraBtn.style.color = 'var(--text)'; extraBtn.style.fontWeight = '500';
-          $('modalCancel').insertAdjacentElement('beforebegin', extraBtn);
-          extraBtn.onclick = () => closeModal(extra.value);
+          const extras = Array.isArray(extra) ? extra : [extra];
+          extras.forEach(ex => {
+            const eb = document.createElement('button');
+            eb.className = 'modal-extra';
+            eb.textContent = ex.text || '额外选项';
+            $('modalCancel').insertAdjacentElement('beforebegin', eb);
+            eb.onclick = () => {
+              const inp = body.querySelector('input');
+              if (input && inp) closeModal({ value: ex.value, name: inp.value.trim() });
+              else closeModal(ex.value);
+            };
+          });
         }
         $('modal').classList.add('open');
-        $('modalOk').onclick = () => {
-          const inp = body.querySelector('input');
-          closeModal(input && inp ? inp.value.trim() || null : true);
-        };
         $('modalCancel').onclick = () => closeModal(null);
       });
     }
@@ -514,6 +654,103 @@
       }
       return list;
     }
+    /* ---------- 批量选择（多选模式，右键菜单进入） ---------- */
+    let batchSel = new Set();
+    let batchMode = false;
+    function updateBatchBar() {
+      const bar = $('batchBar');
+      if (!bar) return;
+      const n = batchSel.size;
+      $('batchCount').textContent = n;
+      bar.style.display = (batchMode && n > 0 && !gameRunning) ? 'flex' : 'none';
+      // 行高亮 + 行样式
+      document.querySelectorAll('.mod-row').forEach(li => {
+        li.classList.toggle('batch-selected', batchSel.has(li.dataset.name));
+        li.classList.toggle('batch-mode', batchMode && !gameRunning);
+      });
+      // 批量栏提示文字随模式
+      const modeHint = $('batchModeHint');
+      if (modeHint) {
+        modeHint.style.display = (batchMode && n === 0 && !gameRunning) ? 'inline' : 'none';
+      }
+    }
+    function exitBatchMode() {
+      batchMode = false;
+      batchSel.clear();
+      updateBatchBar();
+      render();
+    }
+    function batchAction(action) {
+      const names = [...batchSel];
+      if (!names.length) return;
+      const doIt = async () => {
+        try {
+          const r = await api('/api/mods/batch', { method: 'POST', body: JSON.stringify({ names, action }) });
+          toast(r.message || (r.ok ? '完成' : '失败'));
+          if (r.failed && r.failed.length) toast(`失败 ${r.failed.length} 个：` + r.failed.map(f => f.name + '(' + f.error + ')').slice(0, 3).join('、'));
+          exitBatchMode();
+          await load();
+        } catch (e) { toast('失败: ' + e.message); }
+      };
+      if (action === 'delete') {
+        showModal({
+          title: '批量删除',
+          text: `将删除选中的 ${names.length} 个 mod 文件（移入回收站，可找回），并从启停清单移除。确认删除？`,
+          okText: '删除'
+        }).then(ok => { if (ok) doIt(); });
+      } else {
+        doIt();
+      }
+    }
+    $('btnBatchEnable').addEventListener('click', () => batchAction('enable'));
+    $('btnBatchDisable').addEventListener('click', () => batchAction('disable'));
+    $('btnBatchDelete').addEventListener('click', () => batchAction('delete'));
+    $('btnBatchClear').addEventListener('click', () => { batchSel.clear(); updateBatchBar(); });
+    $('btnBatchExit').addEventListener('click', () => exitBatchMode());
+
+    /* 依赖徽标：缺依赖（红）/ 循环依赖（橙）/ 顺序提示（蓝） */
+    function depBadgesFor(name) {
+      const badges = [];
+      const miss = depInfo.missing.filter(x => x.mod === name);
+      const inCycle = depInfo.cycles.some(c => c.includes(name));
+      const orderHint = depInfo.order_hints.find(x => x.ext === name);
+      if (miss.length) {
+        const b = document.createElement('span');
+        b.className = 'dep-badge dep-bad';
+        b.textContent = `🔴 缺依赖:${miss.map(x => x.needs).join(',')}`;
+        b.title = '缺少依赖库，该 mod 可能无法工作';
+        badges.push(b);
+      }
+      if (inCycle) {
+        const b = document.createElement('span');
+        b.className = 'dep-badge dep-cycle';
+        b.textContent = '🔄 循环依赖';
+        b.title = '存在循环依赖，可能导致加载异常';
+        badges.push(b);
+      }
+      if (orderHint) {
+        const b = document.createElement('span');
+        b.className = 'dep-badge dep-order';
+        b.textContent = `📌 应在 ${orderHint.base} 之后`;
+        b.title = '加载顺序提示：该 mod 应排在基础 mod 之后（扩展依赖本体）';
+        badges.push(b);
+      }
+      return badges;
+    }
+    /* 依赖汇总横幅（有严重问题时显示） */
+    function renderDepBanner() {
+      const el = $('depBanner');
+      if (!el) return;
+      if (depInfo.bad <= 0) { el.innerHTML = ''; return; }
+      const missN = depInfo.missing.length;
+      const cycN = depInfo.cycles.length;
+      const ordN = (depInfo.order_hints || []).length;
+      const parts = [];
+      if (missN) parts.push(`${missN} 个 mod 缺依赖`);
+      if (cycN) parts.push(`${cycN} 组循环依赖`);
+      if (ordN) parts.push(`${ordN} 处加载顺序建议`);
+      el.innerHTML = `<div class="banner warn"><span class="b-text">⚠ 依赖检查：${parts.join('，')}——建议在导入新整合包前处理。</span></div>`;
+    }
     function render() {
       const list = visibleMods();
       const enabled = list.filter(m => m.enabled);
@@ -533,8 +770,9 @@
         li.className = 'mod-row' + (m.enabled ? ' enabled-row' : ' disabled') + (m.missing ? ' missing' : '');
         li.dataset.name = m.name;
 
-        const sw = document.createElement('label'); sw.className = 'switch';
-        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = m.enabled;
+
+        const sw = document.createElement('label'); sw.className = 'switch' + (gameRunning ? ' locked' : '');
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = m.enabled; cb.disabled = gameRunning;
         cb.addEventListener('change', () => {
           li.classList.toggle('enabled-row', cb.checked);
           li.classList.toggle('disabled', !cb.checked);
@@ -559,6 +797,9 @@
         if (m.version) subParts.push('v' + m.version);
         sub.textContent = subParts.length ? subParts.join(' · ') : '未检测到版本';
         if (m.missing) sub.textContent = '⚠ MOD缺失';
+        // 依赖徽标
+        const depBadges = depBadgesFor(m.name);
+        for (const b of depBadges) sub.appendChild(b);
         main.append(name, sub);
 
         const ord = document.createElement('span'); ord.className = 'mod-order';
@@ -570,6 +811,7 @@
         li.append(sw, main, ord, hint);
         listEl.appendChild(li);
       }
+      updateBatchBar();
     }
     searchEl.addEventListener('input', () => { keyword = searchEl.value.trim(); render(); });
     document.querySelectorAll('.chip').forEach(chip => {
@@ -580,22 +822,25 @@
       });
     });
 
-    /* ---------- DMF 状态（未安装时引导一键安装） ---------- */
+    /* ---------- DMF 状态（未安装引导一键安装 / 已装提供重装入口） ---------- */
     let dmfInfo = null;
     async function renderDmfBanner() {
       const el = $('dmfBanner');
       if (!dmfInfo) { el.innerHTML = ''; return; }
       if (!dmfInfo.game_dir_valid) { el.innerHTML = ''; return; }  // 游戏目录都没设置，交给状态栏提示
-      if (dmfInfo.installed && !dmfInfo.autopatch_off) { el.innerHTML = ''; return; }  // 一切正常，保持界面清爽
 
       let html;
       if (!dmfInfo.installed) {
         const n = dmfInfo.missing.length;
         html = `<div class="banner err"><span class="b-text">✗ 未检测到 DMF 框架${n ? `（缺 ${n} 个组件：${dmfInfo.missing.slice(0, 3).join('、')}${n > 3 ? ' 等' : ''}）` : ''}——没有它 mods 无法加载，点一下全部搞定。</span>` +
           `<button id="btnDmfInstall">⚡ 一键安装 DMF</button></div>`;
-      } else {
+      } else if (dmfInfo.autopatch_off) {
         html = `<div class="banner warn"><span class="b-text">⚠ 自动装载插件处于禁用状态：一键安装补丁后自动恢复，mods 不再被游戏重置。</span>` +
           `<button id="btnDmfInstall" class="neutral">恢复自动装载</button></div>`;
+      } else {
+        // 一切正常：提供低调的重装入口（覆盖更新，旧文件自动备份）
+        html = `<div class="banner ok"><span class="b-text">✓ DMF 框架已就绪</span>` +
+          `<button id="btnDmfOverwrite" class="neutral">🔄 重新安装框架</button></div>`;
       }
       el.innerHTML = html;
       const btn = $('btnDmfInstall');
@@ -609,6 +854,22 @@
         btn.disabled = true; btn.textContent = '安装中…';
         try {
           const r = await api('/api/dmf/install', { method: 'POST' });
+          toast(r.message || (r.ok ? '完成' : '失败'));
+          if (!r.ok && r.error) toast(r.error);
+        } catch (e) { toast('失败: ' + e.message); }
+        await load();
+      });
+      const owBtn = $('btnDmfOverwrite');
+      if (owBtn) owBtn.addEventListener('click', async () => {
+        const ok = await showModal({
+          title: '重新安装框架',
+          text: '将用内置组件覆盖游戏目录中的 DMF 框架，旧文件会自动备份，可在「备份」页恢复。确认执行？',
+          okText: '重新安装'
+        });
+        if (!ok) return;
+        owBtn.disabled = true; owBtn.textContent = '覆盖中…';
+        try {
+          const r = await api('/api/dmf/install', { method: 'POST', body: JSON.stringify({ force: true }) });
           toast(r.message || (r.ok ? '完成' : '失败'));
           if (!r.ok && r.error) toast(r.error);
         } catch (e) { toast('失败: ' + e.message); }
@@ -667,6 +928,31 @@
         btn.disabled = false;
         btn.textContent = '▶ 启动游戏';
       }
+      updateEditLocks();
+    }
+    /* 游戏运行时锁定所有 mod 编辑入口（变灰禁用，后端仍有守卫双保险） */
+    function updateEditLocks() {
+      const lock = gameRunning;
+      if (lock && batchMode) { batchMode = false; batchSel.clear(); }  // 游戏运行中退出多选
+      const ids = ['btnImport', 'btnDmfOverwrite'];
+      for (const id of ids) {
+        const el = $(id);
+        if (!el) continue;
+        el.disabled = lock;
+        el.classList.toggle('locked', lock);
+        el.title = lock ? '游戏运行中，禁止修改' : '';
+      }
+      // 保存/撤销：游戏运行中强制禁用；恢复后由 setDirty 管理
+      const save = $('btnSaveMods'), revert = $('btnRevert');
+      if (save) { save.disabled = lock || !dirty; save.classList.toggle('locked', lock); }
+      if (revert) { revert.disabled = lock || !dirty; revert.classList.toggle('locked', lock); }
+      // 拖拽导入区提示
+      const hint = $('editLockHint');
+      if (hint) {
+        hint.style.display = lock ? 'flex' : 'none';
+        hint.textContent = '游戏运行中，已锁定 mod 增删改（关闭游戏后恢复）';
+      }
+      updateBatchBar();
     }
     $('btnLaunchSidebar').addEventListener('click', async () => {
       const btn = $('btnLaunchSidebar');
@@ -674,6 +960,7 @@
       try {
         const r = await api('/api/game/launch', { method: 'POST' });
         toast(r.ok ? (r.message || '游戏启动中') : ('启动失败：' + (r.error || '')));
+        if (r.ok) { gameRunning = true; updateLaunchBtn(); }  // 立即锁定编辑入口
       } catch (e) { toast('启动失败: ' + e.message); }
       setTimeout(() => load(), 2500);
     });
@@ -712,9 +999,11 @@
         if (!res.ok) { toast('导入失败：' + (res.error || '')); return; }
         let okN = 0;
         let packHit = false;
+        const ambFiles = [];
         for (const item of res.results) {
           if (item.ok) { okN++; toast(`✓ ${item.mod} 已导入`); }
           else if (item.is_pack) { packHit = true; }
+          else if (item.ambiguous) { ambFiles.push(item.file); }
           else toast(`✗ ${item.file}: ${item.error}`);
         }
         if (packHit) {
@@ -723,21 +1012,196 @@
           await uploadPackFiles(files);
           return;
         }
+        if (ambFiles.length) {
+          // 模棱两可：mods/ 下只有一个 mod 且无清单，让用户确认
+          const choice = await showModal({
+            title: '无法确定导入类型',
+            text: `「${ambFiles[0]}」内含 mods/ 目录但只有一个 mod、没有启停清单。\n\n请问这是？`,
+            okText: '单个 mod',
+            extra: { text: '整合包', value: 'pack' }
+          });
+          if (choice === 'pack') {
+            await uploadPackFiles(files.filter(f => ambFiles.includes(f.name)));
+          } else if (choice) {
+            // 按单个 mod：直接调用 mod 导入通道（绕过后端自动分类，强制当 mod 处理）
+            toast('按单个 mod 导入…');
+            // 后端 ambiguous 时不写入，这里需要强制：重新用单 mod 通道
+            await importAsSingleMod(files.filter(f => ambFiles.includes(f.name)));
+          }
+          return;
+        }
         await load();
       } catch (e) { toast('导入失败: ' + e.message); }
     }
-    $('btnImport').addEventListener('click', () => $('fileInput').click());
+    /* 强制按单个 mod 导入（用户确认过：ambiguous 包按 mod 处理） */
+    async function importAsSingleMod(fileList) {      const files = [...fileList];
+      if (!files.length) return;
+      const fd = new FormData();
+      for (const f of files) fd.append('files', f, f.name);
+      fd.append('force_mod', 'true');
+      try {
+        const r = await fetch('/api/mods/import', { method: 'POST', body: fd });
+        const res = await r.json();
+        if (!res.ok) { toast('导入失败：' + (res.error || '')); return; }
+        for (const item of res.results) {
+          if (item.ok) toast(`✓ ${item.mod} 已导入`);
+          else toast(`✗ ${item.file}: ${item.error}`);
+        }
+        await load();
+      } catch (e) { toast('导入失败: ' + e.message); }
+    }
+    $('btnImport').addEventListener('click', async () => {
+      const choice = await showModal({
+        title: '导入',
+        text: '选择要导入的内容：',
+        okText: '确定',
+        wide: true,
+        choices: [
+          { text: '导入 Mod / 整合包', value: 'archive', desc: '选择 zip / 7z / rar / tar.gz，自动识别是单个 mod 还是整合包' },
+          { text: '导入文件夹', value: 'folder', desc: '选择文件夹形式的 mod / 整合包（无需压缩）' },
+          { text: '导入清单', value: 'load_order', desc: '选择 mod_load_order.txt，替换当前启停清单（旧清单自动备份）' }
+        ]
+      });
+      if (!choice || choice.selected === false) return;  // 取消或未选
+      if (choice.value === 'load_order') $('txtInput').click();
+      else if (choice.value === 'folder') importFolderDialog();
+      else $('fileInput').click();
+    });
+    /* 文件夹导入：pywebview 原生目录选择 → 后端按已解压目录处理 */
+    async function importFolderDialog() {
+      if (!window.pywebview || !window.pywebview.api || !window.pywebview.api.pick_folder) {
+        toast('当前环境不支持文件夹选择（需窗口模式运行）');
+        return;
+      }
+      try {
+        const path = await window.pywebview.api.pick_folder();
+        if (!path) return;  // 取消
+        const r = await api('/api/mods/import_folder', { method: 'POST', body: JSON.stringify({ path, force_mod: false }) });
+        if (r.is_pack) {
+          toast('检测到整合包结构：文件夹形式的整合包请压缩为 zip 后使用「导入 Mod / 整合包」');
+          return;
+        }
+        if (r.ambiguous) {
+          const c = await showModal({
+            title: '无法确定导入类型',
+            text: `「${r.file}」内含 mods/ 目录但只有一个 mod、没有启停清单。\n\n请问这是？`,
+            okText: '单个 mod',
+            extra: { text: '整合包', value: 'pack' }
+          });
+          if (c === 'pack') { toast('文件夹形式的整合包请压缩为 zip 后导入'); return; }
+          if (c) {
+            const r2 = await api('/api/mods/import_folder', { method: 'POST', body: JSON.stringify({ path, force_mod: true }) });
+            toast(r2.ok ? `✓ ${r2.mod} 已导入` : (r2.error || '导入失败'));
+          }
+          await load();
+          return;
+        }
+        toast(r.ok ? `✓ ${r.mod} 已导入` : (r.error || '导入失败'));
+        await load();
+      } catch (e) { toast('导入失败: ' + e.message); }
+    }
     $('fileInput').addEventListener('change', e => {
-      uploadModFiles(e.target.files);
+      const files = [...e.target.files];
       e.target.value = '';
+      handleImportFiles(files);
+    });
+    $('txtInput').addEventListener('change', e => {
+      const files = [...e.target.files];
+      e.target.value = '';
+      handleImportFiles(files);  // 内部按 .txt 分流
+    });
+    /* 导入清单：读取 txt 内容并提交 */
+    async function importLoadOrderFile(file) {      try {
+        const text = await file.text();
+        const ok = await showModal({
+          title: '导入清单',
+          text: `用「${file.name}」的内容替换当前启停清单？（旧清单自动备份）`,
+          okText: '导入'
+        });
+        if (!ok) return;
+        const r = await api('/api/load_order/import', { method: 'POST', body: JSON.stringify({ content: text }) });
+        toast(r.message || (r.ok ? '完成' : '失败'));
+        if (!r.ok && r.error) toast(r.error);
+        await load();
+      } catch (err) { toast('读取清单失败: ' + err.message); }
+    }
+    /* ---------- 导出整合包 ---------- */
+    $('btnExport').addEventListener('click', async () => {
+      const res = await showModal({
+        title: '导出',
+        textAfter: '选择导出内容：',
+        input: true,
+        placeholder: '包名（仅清单模式忽略，留空用时间戳）',
+        okText: '导出',
+        wide: true,
+        choices: [
+          { text: '全部导出', value: 'all', desc: '所有 mod（含禁用的）+ 清单' },
+          { text: '按启用导出', value: 'enabled', desc: '只打包当前启用的 mod + 清单' },
+          { text: '仅导出清单', value: 'load_order', desc: '只生成干净的 mod_load_order.txt，不打包 mod' }
+        ]
+      });
+      if (res === null) return;  // 取消
+      // 先选模式再点「导出」：res = {value, name, selected}
+      if (typeof res === 'object' && res !== null && res.selected === false) {
+        toast('请先选择导出模式');
+        return;
+      }
+      const mode = (res && res.value) || 'all';
+      const realName = (res && res.name) || '';
+      try {
+        const r = await api('/api/export', { method: 'POST', body: JSON.stringify({ name: realName, mode }) });
+        if (!r.ok) { toast(r.error || '导出失败'); return; }
+        toast(r.message || '导出完成');
+        const open = await showModal({
+          title: '导出完成',
+          text: `${r.message}\n\n导出位置：${r.path}\n\n是否打开导出文件夹？`,
+          okText: '打开文件夹',
+          extra: { text: '关闭' }
+        });
+        if (open) {
+          const o = await api('/api/export/open_folder', { method: 'POST' });
+          if (!o.ok && o.error) toast(o.error);
+        }
+      } catch (e) { toast('导出失败: ' + e.message); }
     });
     /* ---------- 整合包导入 ---------- */
     async function uploadPackFiles(fileList) {
       const files = [...fileList];
       if (!files.length) { toast('请选择整合包压缩文件'); return; }
+      // 差异预览：读文件 → /api/pack/preview → 展示新增/移除/更新
+      let preview = null;
+      try {
+        const f = files[0];
+        const data = await f.arrayBuffer();
+        // 分块 base64（避免大文件 String.fromCharCode 爆栈）
+        const bytes = new Uint8Array(data);
+        let bin = '';
+        const CHUNK = 0x8000;
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        }
+        const b64 = btoa(bin);
+        const p = await api('/api/pack/preview', { method: 'POST', body: JSON.stringify({ filename: f.name, data_b64: b64 }) });
+        if (p && p.ok) preview = p;
+        else if (p && p.error) toast(p.error);
+      } catch (e) { /* 预览失败不阻塞，直接进导入 */ }
+
+      let text = '「替换导入」会先把当前全部 mod 归档备份，再换成整合包内容。「合并叠加」则把包内 mod 加进现有 mods。';
+      let lines = null;
+      if (preview) {
+        lines = [];
+        const cap = (arr, n) => arr.slice(0, n).join('、') + (arr.length > n ? ` 等 ${arr.length} 个` : '');
+        if (preview.added.length) lines.push({ text: `🟢 新增 ${preview.added.length}：${cap(preview.added, 6)}`, cls: 'ml-add' });
+        if (preview.updated.length) lines.push({ text: `🟡 更新 ${preview.updated.length}：${cap(preview.updated, 6)}`, cls: 'ml-upd' });
+        if (preview.removed.length) lines.push({ text: `🔴 移除 ${preview.removed.length}：${cap(preview.removed, 6)}`, cls: 'ml-del' });
+        if (preview.same.length) lines.push({ text: `⚪ 相同 ${preview.same.length} 个`, cls: 'ml-same' });
+        lines.push({ text: `包内共 ${preview.pack_count} 个 mod${preview.has_load_order ? ` · 清单 ${preview.pack_lo_count} 个` : ''}，当前 ${preview.cur_count} 个`, cls: 'ml-info' });
+        text = '选择导入方式：';
+      }
       const mode = await showModal({
         title: '导入整合包',
-        text: '「替换导入」会先把当前全部 mod 归档备份，再换成整合包内容。「合并叠加」则把包内 mod 加进现有 mods。',
+        text,
+        lines,
         okText: '替换导入（推荐）',
         extra: { text: '合并叠加', value: 'merge' }
       });
@@ -757,21 +1221,28 @@
         await load();
       } catch (e) { toast('导入失败: ' + e.message); }
     }
-    $('btnPackImport').addEventListener('click', () => $('packInput').click());
-    $('packInput').addEventListener('change', e => {
-      uploadPackFiles(e.target.files);
-      e.target.value = '';
-    });
     const listWrap = $('listWrap');
     ['dragenter', 'dragover'].forEach(ev => listWrap.addEventListener(ev, e => {
-      e.preventDefault(); listWrap.classList.add('dragover');
+      e.preventDefault();
+      if (gameRunning) return;  // 游戏运行中不显示拖放高亮
+      listWrap.classList.add('dragover');
     }));
     ['dragleave', 'drop'].forEach(ev => listWrap.addEventListener(ev, e => {
       e.preventDefault(); listWrap.classList.remove('dragover');
     }));
     listWrap.addEventListener('drop', e => {
-      if (e.dataTransfer && e.dataTransfer.files.length) uploadModFiles(e.dataTransfer.files);
+      if (gameRunning) { toast('游戏运行中，导入已锁定'); return; }
+      if (e.dataTransfer && e.dataTransfer.files.length) handleImportFiles(e.dataTransfer.files);
     });
+    /* 统一导入入口：txt=清单，压缩包=mod/整合包自动识别 */
+    async function handleImportFiles(fileList) {
+      const files = [...fileList];
+      if (!files.length) return;
+      const txts = files.filter(f => /\.txt$/i.test(f.name));
+      const archives = files.filter(f => !/\.txt$/i.test(f.name));
+      if (txts.length) for (const f of txts) await importLoadOrderFile(f);
+      if (archives.length) uploadModFiles(archives);
+    }
 
     /* ---------- 右键菜单（mod 行） ---------- */
     const ctxMenu = $('ctxMenu');
@@ -789,12 +1260,22 @@
       const row = e.target.closest('.mod-row');
       if (!row) return;  // 空白处保留浏览器默认菜单
       e.preventDefault();
+      // 多选模式中：右键任意行 = 退出多选模式（不弹菜单）
+      if (batchMode) {
+        exitBatchMode();
+        return;
+      }
       ctxTarget = row.dataset.name;
       // 残留 mod（文件夹已不存在）：禁用打开文件夹，显示清理入口；正常 mod 显示删除
       const isGhost = row.classList.contains('missing');
-      $('ctxOpenFolder').disabled = isGhost;
+      $('ctxOpenFolder').disabled = isGhost || gameRunning;
       $('ctxDelete').style.display = isGhost ? 'none' : 'block';
       $('ctxRemove').style.display = isGhost ? 'block' : 'none';
+      // 游戏运行中：删除/移除变灰禁用（后端仍有守卫双保险）
+      $('ctxDelete').disabled = gameRunning;
+      $('ctxRemove').disabled = gameRunning;
+      $('ctxNote').disabled = gameRunning;
+      $('ctxBatch').style.display = gameRunning ? 'none' : 'block';  // 游戏运行中不提供多选入口
       ctxMenu.style.display = 'block';
       const x = Math.min(e.clientX, window.innerWidth - 190);
       const y = Math.min(e.clientY, window.innerHeight - 130);
@@ -804,6 +1285,27 @@
     document.addEventListener('click', hideCtx);
     document.addEventListener('scroll', hideCtx, true);
     window.addEventListener('blur', hideCtx);
+    // 多选模式入口：右键菜单「☑ 多选模式」
+    $('ctxBatch').addEventListener('click', () => {
+      hideCtx();
+      if (gameRunning) return;
+      batchMode = true;
+      batchSel.clear();
+      updateBatchBar();
+      render();
+      toast('多选模式：点击 mod 行选择，右键退出');
+    });
+    // 多选模式：点击行切换选中（不触发拖拽/开关）
+    listEl.addEventListener('click', e => {
+      if (!batchMode || gameRunning) return;
+      const row = e.target.closest('.mod-row');
+      if (!row) return;
+      // 点击开关不拦截（开关自己处理）
+      if (e.target.closest('.switch')) return;
+      const name = row.dataset.name;
+      if (batchSel.has(name)) batchSel.delete(name); else batchSel.add(name);
+      updateBatchBar();
+    });
     $('ctxOpenFolder').addEventListener('click', async () => {
       const name = ctxTarget;  // 先捕获，避免菜单关闭逻辑清空目标
       hideCtx();
@@ -894,6 +1396,10 @@
         : `<span class="dot" style="background:var(--red)"></span>未找到游戏目录 · 请到「关于」页设置`;
       render();
       setDirty(false);
+      // 依赖检查（不阻塞，失败静默）
+      api('/api/deps/check').then(r => {
+        if (r && r.ok) { depInfo = r; renderDepBanner(); render(); }
+      }).catch(() => {});
       // 自动装载：补丁未打且未手动禁用时自动补打（幂等）
       try {
         const ar = await api('/api/patch/auto', { method: 'POST' });
@@ -937,7 +1443,7 @@
     $('btnRefresh').addEventListener('click', () => load());
 
     new Sortable(listEl, {
-      filter: '.disabled',
+      filter: '.disabled, .row-check',
       animation: 150,
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
@@ -952,30 +1458,62 @@
       cards.innerHTML = '';
       const packs = res.backups.filter(b => b.type === 'pack');
       const dmfs = res.backups.filter(b => b.type === 'dmf');
-      if (!packs.length && !dmfs.length) {
-        cards.innerHTML = '<div class="tip">暂无归档备份。导入整合包（替换模式）或恢复操作会自动把旧 mods 归档到这里，之后可在此一键找回。</div>';
+      const los = res.backups.filter(b => b.type === 'load_order');
+      if (!packs.length && !dmfs.length && !los.length) {
+        cards.innerHTML = '<div class="tip">暂无归档备份。导入整合包（替换模式）、恢复操作或导入清单会自动把旧内容归档到这里，之后可在此一键找回。</div>';
         return;
       }
       const mkCard = (b) => {
         const card = document.createElement('div'); card.className = 'profile-card';
         const nm = document.createElement('div'); nm.className = 'pc-name';
-        nm.textContent = b.type === 'pack' ? `整合包归档 · ${b.created}` : `DMF 组件备份 · ${b.created}`;
+        nm.textContent = b.type === 'pack' ? `整合包归档 · ${b.created}`
+          : (b.type === 'dmf' ? `DMF 组件备份 · ${b.created}` : `清单备份 · ${b.created}`);
         const meta = document.createElement('div'); meta.className = 'pc-meta';
         if (b.type === 'pack') {
-          const names = (b.mods || []).slice(0, 4).join('、');
-          meta.textContent = `${b.count} 个 mod${b.has_load_order ? ' · 含启停清单' : ''}${names ? '（' + names + (b.count > 4 ? '…' : '') + '）' : ''}`;
+          meta.textContent = b.enabled_count !== null && b.enabled_count !== undefined
+            ? `启用了 ${b.enabled_count} 个 mod，共 ${b.count} 个 mod`
+            : `共 ${b.count} 个 mod`;
+        } else if (b.type === 'dmf') {
+          meta.textContent = `共 ${b.count} 个文件`;
         } else {
-          meta.textContent = `${b.count} 个文件（DMF 框架组件）`;
+          meta.textContent = '启停清单';
         }
         const acts = document.createElement('div'); acts.className = 'pc-actions';
-        if (b.type === 'pack') {
+        if (b.type === 'pack' || b.type === 'load_order') {
           const restore = document.createElement('button'); restore.className = 'pc-apply'; restore.textContent = '恢复此备份';
+          const confirmText = b.type === 'pack'
+            ? `恢复 ${b.created} 的整合包归档？当前 mods 会先归档备份，再换回这套（${b.count} 个 mod）。`
+            : `恢复 ${b.created} 的清单备份？当前启停清单会先备份，再换回这份。`;
           restore.addEventListener('click', async () => {
-            const ok = await showModal({
-              title: '恢复备份',
-              text: `恢复 ${b.created} 的整合包归档？当前 mods 会先归档备份，再换回这套（${b.count} 个 mod）。`,
-              okText: '恢复'
-            });
+            // 先预览差异再确认
+            let text = confirmText;
+            let lines = null;
+            const cap = (arr, n) => arr.slice(0, n).join('、') + (arr.length > n ? ` 等 ${arr.length} 个` : '');
+            try {
+              if (b.type === 'pack') {
+                const p = await api('/api/backups/' + encodeURIComponent(b.id) + '/preview', { method: 'POST' });
+                if (p && p.ok) {
+                  lines = [];
+                  if (p.added.length) lines.push({ text: `🟢 恢复新增 ${p.added.length}：${cap(p.added, 6)}`, cls: 'ml-add' });
+                  if (p.updated.length) lines.push({ text: `🟡 更新 ${p.updated.length}：${cap(p.updated, 6)}`, cls: 'ml-upd' });
+                  if (p.removed.length) lines.push({ text: `🔴 移除 ${p.removed.length}：${cap(p.removed, 6)}`, cls: 'ml-del' });
+                  if (p.same.length) lines.push({ text: `⚪ 相同 ${p.same.length} 个`, cls: 'ml-same' });
+                  lines.push({ text: `备份内共 ${p.bak_count} 个 mod，当前 ${p.cur_count} 个`, cls: 'ml-info' });
+                  text = '恢复后与当前的差异：';
+                }
+              } else if (b.type === 'load_order') {
+                const p = await api('/api/load_order/preview', { method: 'POST', body: JSON.stringify({ source: 'backup:' + b.id }) });
+                if (p && p.ok) {
+                  lines = [];
+                  if (p.turn_on.length) lines.push({ text: `🟢 将启用 ${p.turn_on.length}：${cap(p.turn_on, 6)}`, cls: 'ml-add' });
+                  if (p.turn_off.length) lines.push({ text: `🔴 将禁用 ${p.turn_off.length}：${cap(p.turn_off, 6)}`, cls: 'ml-del' });
+                  if (p.keep_on.length) lines.push({ text: `⚪ 保持启用 ${p.keep_on.length} 个`, cls: 'ml-same' });
+                  lines.push({ text: `清单 ${p.target_count} 个 mod，当前启用 ${p.cur_on_count} 个`, cls: 'ml-info' });
+                  text = '恢复清单后的启停变化：';
+                }
+              }
+            } catch (e) { /* 预览失败不阻塞 */ }
+            const ok = await showModal({ title: '恢复备份', text, lines, okText: '恢复' });
             if (!ok) return;
             restore.disabled = true; restore.textContent = '恢复中…';
             try {
@@ -1000,6 +1538,7 @@
       };
       packs.forEach(mkCard);
       dmfs.forEach(mkCard);
+      los.forEach(mkCard);
     }
     $('btnRefreshBackups').addEventListener('click', () => loadBackups());
 
@@ -1021,7 +1560,21 @@
         const acts = document.createElement('div'); acts.className = 'pc-actions';
         const apply = document.createElement('button'); apply.className = 'pc-apply'; apply.textContent = '应用';
         apply.addEventListener('click', async () => {
-          const ok = await showModal({ title: '应用预设', text: `应用预设「${p.name}」？当前启停和顺序将被替换。`, okText: '应用' });
+          let text = `应用预设「${p.name}」？当前启停和顺序将被替换。`;
+          let lines = null;
+          try {
+            const pv = await api('/api/load_order/preview', { method: 'POST', body: JSON.stringify({ source: 'profile:' + p.name }) });
+            if (pv && pv.ok) {
+              lines = [];
+              const cap = (arr, n) => arr.slice(0, n).join('、') + (arr.length > n ? ` 等 ${arr.length} 个` : '');
+              if (pv.turn_on.length) lines.push({ text: `🟢 将启用 ${pv.turn_on.length}：${cap(pv.turn_on, 6)}`, cls: 'ml-add' });
+              if (pv.turn_off.length) lines.push({ text: `🔴 将禁用 ${pv.turn_off.length}：${cap(pv.turn_off, 6)}`, cls: 'ml-del' });
+              if (pv.keep_on.length) lines.push({ text: `⚪ 保持启用 ${pv.keep_on.length} 个`, cls: 'ml-same' });
+              lines.push({ text: `预设 ${pv.target_count} 个 mod，当前启用 ${pv.cur_on_count} 个`, cls: 'ml-info' });
+              text = '应用预设后的启停变化：';
+            }
+          } catch (e) { /* 预览失败不阻塞 */ }
+          const ok = await showModal({ title: '应用预设', text, lines, okText: '应用' });
           if (!ok) return;
           try {
             await api('/api/profiles/' + encodeURIComponent(p.name) + '/apply', { method: 'POST' });
@@ -1063,6 +1616,7 @@
         `<span class="k">加载清单</span><span class="v">mods\\mod_load_order.txt</span>` +
         `<span class="k">预设目录</span><span class="v">${st.profiles_dir}</span>` +
         `<span class="k">日志文件</span><span class="v">exe 同目录 app.log</span>` +
+        `<span class="k">内置 DMF</span><span class="v">${dmfStatusHtml(st.dmf)}</span>` +
         `<span class="k">项目主页</span><span class="v"><button class="link-btn" id="btnOpenRepo">🌐 GitHub</button></span>`;
       $('dirInput').value = '';
       const repoBtn = $('btnOpenRepo');
@@ -1072,6 +1626,48 @@
           if (!r.ok && r.error) toast(r.error);
         } catch (e) { toast('打开失败: ' + e.message); }
       });
+      const overwriteBtn = $('btnDmfOverwrite');
+      if (overwriteBtn) overwriteBtn.addEventListener('click', async () => {
+        const ok = await showModal({
+          title: '覆盖更新 DMF',
+          text: '将用内置组件覆盖游戏目录中的 DMF 框架，旧文件会自动备份，可在「备份」页恢复。确认执行？',
+          okText: '覆盖更新'
+        });
+        if (!ok) return;
+        overwriteBtn.disabled = true; overwriteBtn.textContent = '覆盖中…';
+        try {
+          const r = await api('/api/dmf/install', { method: 'POST', body: JSON.stringify({ force: true }) });
+          toast(r.message || (r.ok ? '完成' : '失败'));
+          if (!r.ok && r.error) toast(r.error);
+        } catch (e) { toast('失败: ' + e.message); }
+        loadAbout();
+      });
+      // 模拟游戏运行（测试专用）
+      const simState = $('simState');
+      if (simState) simState.textContent = st.simulated_game_running ? '当前：模拟运行中' : '当前：未模拟';
+      const simOn = $('btnSimOn'), simOff = $('btnSimOff');
+      if (simOn) simOn.addEventListener('click', async () => {
+        try {
+          const r = await api('/api/simulate_game', { method: 'POST', body: JSON.stringify({ running: true }) });
+          if (r.ok) { toast('已模拟游戏运行（界面已锁定编辑）'); load(); }
+          else toast(r.error || '模拟失败');
+        } catch (e) { toast('模拟失败: ' + e.message); }
+      });
+      if (simOff) simOff.addEventListener('click', async () => {
+        try {
+          const r = await api('/api/simulate_game', { method: 'POST', body: JSON.stringify({ running: false }) });
+          if (r.ok) { toast('已停止模拟'); load(); }
+          else toast(r.error || '停止失败');
+        } catch (e) { toast('停止失败: ' + e.message); }
+      });
+    }
+    function dmfStatusHtml(dmf) {
+      if (!dmf || !dmf.game_dir_valid) return '<span class="dim">未设置游戏目录</span>';
+      if (dmf.installed) {
+        return `✓ 已安装 <button class="link-btn" id="btnDmfOverwrite">🔄 覆盖更新</button>`;
+      }
+      const n = dmf.missing ? dmf.missing.length : 0;
+      return `✗ 未安装（缺 ${n} 个组件）`;
     }
     $('btnSetDir').addEventListener('click', async () => {
       const dir = $('dirInput').value.trim();
