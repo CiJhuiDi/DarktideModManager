@@ -16,6 +16,7 @@ backups/
 profiles/
 release/
 backups_dmf_*/
+demo/
 
 # ---- 测试临时目录 ----
 mock/
