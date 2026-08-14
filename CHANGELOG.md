@@ -2,6 +2,12 @@
 
 项目主页：https://github.com/CiJhuiDi/DarktideModManager
 
+> **新版本发布格式模板（2026-08-14 定）**
+> - 版本段标题：`## vX.Y.Z（YYYY-MM-DD）`，日期为发布日
+> - 条目以 `- ` 开头，一条一行；重要修复可用 `**加粗小标题**` 起头
+> - GitHub Release 标题：`vX.Y.Z Beta`（**不加「版」字**，不叫「内测版」）
+> - 发布时正文直接从本文件对应段落同步，用 `python tools/sync_release_notes.py vX.Y.Z`
+
 ## v0.2.3（2026-08-14）
 
 - 修复：因偷懒产生的荒诞错误

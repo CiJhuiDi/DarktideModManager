@@ -40,7 +40,7 @@ body = """## v0.2.3（2026-08-14）
 
 # 创建 release
 r = gh(['release', 'create', 'v0.2.3', '-R', 'CiJhuiDi/DarktideModManager',
-        '--title', 'v0.2.3 内测版', '--notes', body])
+        '--title', 'v0.2.3 Beta', '--notes', body])
 print('create:', r.stdout.strip() or r.stderr.strip()[:300])
 
 # 上传 zip
