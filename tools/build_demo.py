@@ -34,18 +34,33 @@ bundle.mkdir(parents=True, exist_ok=True)
 
 # ---------- 示例 mod 生成 ----------
 def make_mod(folder, name, version='1.0.0', packages=None, display_name=None):
-    """生成一个假 mod：.mod 文件 + localization（中文名）+ 一个脚本文件"""
+    """生成一个假 mod（进游戏不报错）：标准 DMF 结构 .mod + localization + script"""
     d = MODS / folder
     d.mkdir(parents=True, exist_ok=True)
     pkgs = ', '.join(f'"{p}"' for p in (packages or []))
     pkg_line = f'packages = {{{pkgs}}}, ' if pkgs else 'packages = {}, '
-    (d / f'{folder}.mod').write_text(
-        f'return {{ run = function() new_mod("{name}", {{}}) end, {pkg_line}version = "{version}" }}',
-        encoding='utf-8')
+    # 标准 .mod：带 mod_script/mod_data/mod_localization 指向实际文件
+    mod_body = (
+        'return {\n'
+        '  run = function()\n'
+        f'    new_mod("{name}", {{\n'
+        f'      mod_script       = "{folder}/scripts/mods/{folder}/{folder}",\n'
+        f'      mod_data         = "{folder}/scripts/mods/{folder}/{folder}_data",\n'
+        f'      mod_localization = "{folder}/scripts/mods/{folder}/{folder}_localization",\n'
+        '    })\n'
+        '  end,\n'
+        f'  {pkg_line}version = "{version}"\n'
+        '}\n'
+    )
+    (d / f'{folder}.mod').write_text(mod_body, encoding='utf-8')
     scripts = d / 'scripts' / 'mods' / folder
     scripts.mkdir(parents=True, exist_ok=True)
-    (scripts / f'{folder}.lua').write_text('-- demo mod (fake data)\n', encoding='utf-8')
-    # 中文显示名（localization lua 文件，格式: mod_name = { ["zh-cn"] = "..." }）
+    # script/data/localization 三个 lua（空实现，加载不报错）
+    (scripts / f'{folder}.lua').write_text(
+        f'-- demo mod: {name} (fake data, no real function)\nreturn {{}}\n', encoding='utf-8')
+    (scripts / f'{folder}_data.lua').write_text('return {}\n', encoding='utf-8')
+    (scripts / f'{folder}_localization.lua').write_text('return {}\n', encoding='utf-8')
+    # 中文显示名（额外 localization 文件，格式: mod_name = { ["zh-cn"] = "..." }）
     if display_name:
         loc = d / 'localization'
         loc.mkdir(exist_ok=True)
