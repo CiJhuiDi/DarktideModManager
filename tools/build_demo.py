@@ -21,10 +21,16 @@ MODS.mkdir(parents=True)
 
 # ---------- 系统组件（DMF 框架，真实文件从 dmf_payload 拷） ----------
 payload = BASE / 'dmf_payload'
-for sub in ('mods/base', 'mods/dmf'):
+# 完整拷贝：mods/base + mods/dmf + binaries + tools
+for sub in ('mods/base', 'mods/dmf', 'binaries', 'tools'):
     src = payload / sub
     if src.is_dir():
-        shutil.copytree(src, MODS / sub.replace('mods/', ''), dirs_exist_ok=True)
+        dst = GAME / sub
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+# bundle 目录（patch_999 由 dtkit 打补丁生成，这里先建空目录）
+bundle = GAME / 'bundle'
+bundle.mkdir(parents=True, exist_ok=True)
 
 # ---------- 示例 mod 生成 ----------
 def make_mod(folder, name, version='1.0.0', packages=None, display_name=None):
@@ -97,15 +103,6 @@ load_order = [
     '--DisabledMod',
 ]
 (MODS / 'mod_load_order.txt').write_text('\n'.join(load_order) + '\n', encoding='utf-8')
-
-# ---------- 工具文件（让补丁检测通过） ----------
-tools = GAME / 'tools'
-tools.mkdir(exist_ok=True)
-patch_src = payload / 'tools' / 'dtkit-patch.exe'
-if patch_src.is_file():
-    shutil.copy2(patch_src, tools / 'dtkit-patch.exe')
-bundle = GAME / 'bundle'
-bundle.mkdir(exist_ok=True)
 
 # ---------- config.json ----------
 (DEMO / 'config.json').write_text(
