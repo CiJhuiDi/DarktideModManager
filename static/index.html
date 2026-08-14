@@ -9,7 +9,80 @@
     --border: #2c3242; --text: #dfe3ec; --dim: #8b94a7;
     --accent: #4da3ff; --green: #3ecf8e; --red: #ff6b6b; --warn: #ffb454;
     --sidebar-w: 168px;
+    --grad-c1: #12141a; --grad-c2: #1a1e27; --grad-c3: #12141a;  /* 渐变三段色 */
+    --panel-alpha: 0.92;  /* 面板不透明度 */
+    --active-bg: #22304a;  /* 选中/高亮背景（深色主题默认） */
+    --chosen-bg: #20293c;  /* 拖拽中背景 */
   }
+
+  /* ---------- 主题系统（7 套） ---------- */
+  /* 默认：深渊暗潮（深色） */
+  :root, [data-theme="abyss"] {
+    --grad-c1: #0e1117; --grad-c2: #1a1e2a; --grad-c3: #10131b;
+    --bg: #12141a; --panel: rgba(26,30,39,.92); --panel2: rgba(34,39,52,.9);
+    --border: #2c3242; --text: #dfe3ec; --dim: #8b94a7;
+    --accent: #4da3ff; --green: #3ecf8e; --red: #ff6b6b; --warn: #ffb454;
+    --active-bg: #22304a; --chosen-bg: #20293c;
+  }
+  /* 纯净黎明（浅色） */
+  [data-theme="dawn"] {
+    --grad-c1: #eef2f8; --grad-c2: #dde5f0; --grad-c3: #e8edf5;
+    --bg: #eef2f8; --panel: rgba(255,255,255,.85); --panel2: rgba(240,244,250,.88);
+    --border: #c3ccda; --text: #1c2333; --dim: #5a6478;
+    --accent: #2f6fd6; --green: #1e8f5a; --red: #d64040; --warn: #c07f1a;
+    --active-bg: #d4e0f5; --chosen-bg: #c9d8f0;
+  }
+  /* 欢愉紫（色孽） */
+  [data-theme="pleasure"] {
+    --grad-c1: #1a0f2e; --grad-c2: #4a1a6e; --grad-c3: #1e1038;
+    --bg: #1a1028; --panel: rgba(38,22,58,.9); --panel2: rgba(50,30,74,.88);
+    --border: #5a3a8a; --text: #ecd9ff; --dim: #a98bc8;
+    --accent: #c77dff; --green: #3ecf8e; --red: #ff6b6b; --warn: #ffb454;
+    --active-bg: #4a2a78; --chosen-bg: #3e2366;
+  }
+  /* 疫病绿（纳垢） */
+  [data-theme="plague"] {
+    --grad-c1: #101a12; --grad-c2: #2e4a28; --grad-c3: #14200f;
+    --bg: #111a10; --panel: rgba(28,44,26,.9); --panel2: rgba(38,58,34,.88);
+    --border: #4a6a3a; --text: #d8f0c8; --dim: #8fae7e;
+    --accent: #7ab648; --green: #8fd14f; --red: #ff8f6b; --warn: #e8c84a;
+    --active-bg: #2e4a28; --chosen-bg: #27401f;
+  }
+  /* 愤怒红（恐虐） */
+  [data-theme="rage"] {
+    --grad-c1: #1c0f10; --grad-c2: #4a1c1a; --grad-c3: #200f10;
+    --bg: #1c1012; --panel: rgba(50,22,22,.9); --panel2: rgba(64,30,28,.88);
+    --border: #6a3a34; --text: #ffdcd6; --dim: #c08a80;
+    --accent: #e04848; --green: #3ecf8e; --red: #ff4d4d; --warn: #ffb454;
+    --active-bg: #4a1c1a; --chosen-bg: #3e1714;
+  }
+  /* 神秘蓝（奸奇） */
+  [data-theme="mystic"] {
+    --grad-c1: #0e1422; --grad-c2: #1c3a66; --grad-c3: #10182a;
+    --bg: #0f1524; --panel: rgba(22,36,60,.9); --panel2: rgba(30,48,76,.88);
+    --border: #3a5a8a; --text: #d6e8ff; --dim: #8aa8c8;
+    --accent: #4da3ff; --green: #3ecf8e; --red: #ff6b6b; --warn: #ffb454;
+    --active-bg: #1c3a66; --chosen-bg: #172f52;
+  }
+  /* 帝皇金（帝国） */
+  [data-theme="emperor"] {
+    --grad-c1: #221a0c; --grad-c2: #6a5218; --grad-c3: #2a1f0c;
+    --bg: #1e1810; --panel: rgba(52,42,20,.9); --panel2: rgba(66,52,26,.88);
+    --border: #8a743a; --text: #ffe9b8; --dim: #c8ae7a;
+    --accent: #e8b648; --green: #3ecf8e; --red: #ff6b6b; --warn: #ffd454;
+    --active-bg: #5a4614; --chosen-bg: #4a3a0f;
+  }
+
+  /* 渐变背景：方向由 body 上的 data-grad 控制 */
+  body {
+    background: linear-gradient(135deg, var(--grad-c1), var(--grad-c2) 50%, var(--grad-c3));
+    background-attachment: fixed;
+    transition: background .3s, color .3s;
+  }
+  body[data-grad="diag"]   { background: linear-gradient(135deg, var(--grad-c1), var(--grad-c2) 50%, var(--grad-c3)); }
+  body[data-grad="hori"]   { background: linear-gradient(90deg, var(--grad-c1), var(--grad-c2) 50%, var(--grad-c3)); }
+  body[data-grad="vert"]   { background: linear-gradient(0deg, var(--grad-c1), var(--grad-c2) 50%, var(--grad-c3)); }
+  body[data-grad="radial"] { background: radial-gradient(circle at 50% 30%, var(--grad-c2), var(--grad-c1) 70%); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
@@ -24,6 +97,7 @@
     display: flex; align-items: center; gap: 10px;
     padding: 10px 16px; background: var(--panel);
     border-bottom: 1px solid var(--border); flex-shrink: 0;
+    backdrop-filter: blur(10px);
   }
   .logo {
     width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
@@ -49,6 +123,7 @@
     width: var(--sidebar-w); flex-shrink: 0; background: var(--panel);
     border-right: 1px solid var(--border); padding: 10px 8px;
     display: flex; flex-direction: column; gap: 4px;
+    backdrop-filter: blur(10px);
   }
   .sidebar button {
     background: transparent; border: none; color: var(--dim);
@@ -57,7 +132,7 @@
     display: flex; align-items: center; gap: 9px;
   }
   .sidebar button:hover { background: var(--panel2); color: var(--text); }
-  .sidebar button.active { background: #22304a; color: var(--accent); font-weight: 600; }
+  .sidebar button.active { background: var(--active-bg); color: var(--accent); font-weight: 600; }
   .sidebar .icon { font-size: 15px; width: 18px; text-align: center; }
   .sidebar .foot { margin-top: auto; font-size: 11px; color: #5a6275; padding: 8px 12px; text-align: center; }
   .sidebar .foot .foot-ver { font-size: 12px; color: #7a8398; font-weight: 600; }
@@ -78,12 +153,13 @@
     opacity: .55; cursor: not-allowed; transform: none; box-shadow: none;
   }
 
-  .content { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .content { flex: 1; min-width: 0; display: flex; flex-direction: column; background: transparent; }
   .view { flex: 1; min-height: 0; display: none; flex-direction: column; }
   .view.active { display: flex; }
 
   /* ---------- 工具条 ---------- */
   .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 14px 8px; flex-shrink: 0; }
+  .toolbar button { white-space: nowrap; flex-shrink: 0; }
   input[type="text"] {
     background: var(--panel2); color: var(--text); border: 1px solid var(--border);
     border-radius: 7px; padding: 7px 12px; font-size: 13px; outline: none; flex: 1; max-width: 320px;
@@ -96,36 +172,37 @@
     border-radius: 20px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all .12s;
   }
   .chip:hover { color: var(--text); }
-  .chip.active { background: #22304a; border-color: var(--accent); color: var(--accent); }
+  .chip.active { background: var(--active-bg); border-color: var(--accent); color: var(--accent); }
   button.ghost {
     background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
     border-radius: 7px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; transition: all .12s;
   }
-  button.ghost:hover { color: var(--text); background: #272e3d; }
+  button.ghost:hover { color: var(--text); background: var(--active-bg); }
   .spacer { flex: 1; }
 
   /* ---------- Mod 列表 ---------- */
   .list-wrap { flex: 1; overflow-y: auto; padding: 4px 14px 14px; }
   .list-wrap::-webkit-scrollbar { width: 9px; }
-  .list-wrap::-webkit-scrollbar-thumb { background: #2c3242; border-radius: 6px; border: 2px solid var(--bg); }
-  .list-wrap::-webkit-scrollbar-thumb:hover { background: #3a4256; }
+  .list-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid var(--bg); }
+  .list-wrap::-webkit-scrollbar-thumb:hover { background: var(--dim); }
 
   .mod-row {
     display: flex; align-items: center; gap: 12px;
     background: var(--panel); border: 1px solid var(--border);
     border-radius: 8px; padding: 8px 14px; margin-bottom: 5px;
     cursor: grab; transition: border-color .12s, background .12s;
+    backdrop-filter: blur(8px);
   }
   .mod-row:hover { border-color: #3d4659; }
   .mod-row.disabled { opacity: .5; cursor: default; }
   .mod-row.missing { border-color: rgba(255,180,84,.45); }
   .mod-row.sortable-ghost { opacity: .25; }
-  .mod-row.sortable-chosen { background: #20293c; border-color: var(--accent); }
+  .mod-row.sortable-chosen { background: var(--chosen-bg); border-color: var(--accent); }
 
   .switch { position: relative; width: 38px; height: 21px; flex-shrink: 0; }
   .switch input { display: none; }
   .slider {
-    position: absolute; inset: 0; background: #39404f; border-radius: 20px;
+    position: absolute; inset: 0; background: var(--border); border-radius: 20px;
     transition: background .18s; cursor: pointer;
   }
   .slider::before {
@@ -166,7 +243,7 @@
   .banner button.danger { background: #7c2f2f; border-color: #a84444; color: #ffd9d9; }
   .banner button.danger:hover { background: #944040; }
   .banner button.neutral { background: var(--panel2); border-color: var(--border); color: var(--text); font-weight: 500; }
-  .banner button.neutral:hover { background: #2c3340; }
+  .banner button.neutral:hover { background: var(--active-bg); }
   .banner button.locked, .ghost.locked, .statusbar button.locked { opacity: .45; cursor: not-allowed; filter: grayscale(1); }
   #editLockHint { display: none; align-items: center; gap: 6px; margin: 0 0 10px; padding: 8px 12px;
     background: rgba(255,180,84,.08); border: 1px solid rgba(255,180,84,.3); border-radius: 6px;
@@ -189,9 +266,9 @@
   /* ---------- 预设视图 ---------- */
   .cards { flex: 1; overflow-y: auto; padding: 12px 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; align-content: start; }
   .cards::-webkit-scrollbar { width: 9px; }
-  .cards::-webkit-scrollbar-thumb { background: #2c3242; border-radius: 6px; border: 2px solid var(--bg); }
+  .cards::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 2px solid var(--bg); }
   .profile-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    padding: 14px; display: flex; flex-direction: column; gap: 8px; backdrop-filter: blur(8px); }
   .backup-group-title { grid-column: 1 / -1; font-size: 13px; font-weight: 600; color: var(--accent);
     margin: 6px 0 0; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
   .profile-card:hover { border-color: #3d4659; }
@@ -216,19 +293,42 @@
   .about { padding: 18px; overflow-y: auto; }
   .about .card {
     background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: 16px; margin-bottom: 12px; max-width: 640px;
+    padding: 16px; margin-bottom: 12px; width: 100%;
+    backdrop-filter: blur(10px);
   }
   .about h3 { font-size: 13px; color: var(--dim); margin-bottom: 10px; font-weight: 600; }
   .about .kv { display: grid; grid-template-columns: 96px 1fr; gap: 6px 12px; font-size: 12.5px; }
   .about .kv .k { color: var(--dim); }
   .about .kv .v { color: var(--text); word-break: break-all; user-select: text; }
   .about .tip { color: var(--dim); font-size: 12.5px; line-height: 1.7; user-select: text; }
+  .theme-select {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 7px; padding: 6px 10px; font-size: 13px; outline: none; cursor: pointer;
+  }
+  .theme-select:hover { border-color: var(--accent); }
+  .grad-btn.active { border-color: var(--accent) !important; color: var(--accent) !important; background: rgba(77,163,255,.12); }
+  /* 自定义主题：亮/暗两套变量（复用黎明/深渊色板），背景由 JS 设图片 */
+  [data-theme="custom"][data-custom-mode="dark"] {
+    --bg: #12141a; --panel: rgba(26,30,39,.92); --panel2: rgba(34,39,52,.9);
+    --border: #2c3242; --text: #dfe3ec; --dim: #8b94a7;
+    --accent: #4da3ff; --green: #3ecf8e; --red: #ff6b6b; --warn: #ffb454;
+    --active-bg: #22304a; --chosen-bg: #20293c;
+  }
+  [data-theme="custom"][data-custom-mode="light"] {
+    --bg: #eef2f8; --panel: rgba(255,255,255,.85); --panel2: rgba(240,244,250,.88);
+    --border: #c3ccda; --text: #1c2333; --dim: #5a6478;
+    --accent: #2f6fd6; --green: #1e8f5a; --red: #d64040; --warn: #c07f1a;
+    --active-bg: #d4e0f5; --chosen-bg: #c9d8f0;
+  }
+  .theme-mode-label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; }
+  .theme-mode-label input { accent-color: var(--accent); }
 
   /* ---------- 状态栏 ---------- */
   .statusbar {
     display: flex; align-items: center; gap: 14px;
     padding: 9px 16px; background: var(--panel);
     border-top: 1px solid var(--border); flex-shrink: 0;
+    backdrop-filter: blur(10px);
   }
   .statusbar .stats { font-size: 12px; color: var(--dim); }
   .statusbar .stats b { color: var(--text); font-weight: 600; }
@@ -252,7 +352,7 @@
 
   .toast {
     position: fixed; bottom: 54px; left: 50%; transform: translateX(-50%) translateY(8px);
-    background: #232a37; border: 1px solid #3a4256; border-radius: 8px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
     padding: 10px 18px; font-size: 12.5px; opacity: 0; transition: all .22s;
     pointer-events: none; z-index: 99; box-shadow: 0 6px 24px rgba(0,0,0,.45);
   }
@@ -267,7 +367,7 @@
     display: flex; align-items: center; justify-content: center;
   }
   .modal {
-    background: var(--panel); border: 1px solid #3a4256; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
     box-shadow: 0 18px 50px rgba(0,0,0,.55); width: 360px; max-width: 90vw;
     padding: 20px; display: flex; flex-direction: column; gap: 14px;
   }
@@ -322,7 +422,7 @@
     color: var(--text); padding: 8px 10px; border-radius: 5px;
     font-size: 12.5px; cursor: pointer;
   }
-  .ctx-menu button:hover { background: #22304a; }
+  .ctx-menu button:hover { background: var(--active-bg); }
   .ctx-menu button:disabled { opacity: .45; cursor: not-allowed; }
   .ctx-menu button:disabled:hover { background: none; }
   .ctx-menu .ctx-danger { color: #ff8a8a; }
@@ -339,7 +439,7 @@
   .dim { color: var(--dim); }
 </style>
 </head>
-<body>
+<body data-theme="abyss" data-grad="diag">
   <!-- 顶栏 -->
   <header class="titlebar">
     <div class="logo"></div>
@@ -427,6 +527,48 @@
             </div>
           </div>
           <div class="card">
+            <h3>主题设置</h3>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap">
+              <select id="themeSelect" class="theme-select" style="width:190px;flex-shrink:0">
+                <option value="abyss">🌑 深渊暗潮</option>
+                <option value="dawn">🌅 纯净黎明</option>
+                <option value="pleasure">💜 欢愉紫</option>
+                <option value="plague">🧪 疫病绿</option>
+                <option value="rage">🔥 愤怒红</option>
+                <option value="mystic">🔮 神秘蓝</option>
+                <option value="emperor">👑 帝皇金</option>
+                <option value="custom">🖼 自定义</option>
+              </select>
+              <button class="ghost" id="btnThemeRandom" title="立即随机切换主题" style="flex-shrink:0">🎲 随机</button>
+            </div>
+            <label class="theme-random-label" style="margin-top:8px" title="勾选后，每次启动管理器时自动更换随机主题">
+              <input type="checkbox" id="themeRandomNext"> 每次启动时随机主题
+            </label>
+            <div class="tip" style="margin-top:8px">渐变方向：</div>
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:nowrap">
+              <button class="ghost grad-btn" data-grad="diag" title="对角渐变" style="flex-shrink:0">↘ 对角</button>
+              <button class="ghost grad-btn" data-grad="hori" title="水平渐变" style="flex-shrink:0">→ 水平</button>
+              <button class="ghost grad-btn" data-grad="vert" title="垂直渐变" style="flex-shrink:0">↓ 垂直</button>
+              <button class="ghost grad-btn" data-grad="radial" title="径向渐变" style="flex-shrink:0">◎ 径向</button>
+            </div>
+            <div class="tip" style="margin-top:10px">🖼 自定义主题（背景图）：</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:nowrap;margin-top:6px">
+              <input type="file" id="themeImgInput" accept=".jpg,.jpeg,.png,.webp,.bmp" style="font-size:12px;min-width:140px;flex:1;max-width:300px">
+              <span style="display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--dim);flex-shrink:0">
+                模式：
+                <label class="theme-mode-label"><input type="radio" name="themeMode" value="dark" checked> 暗色</label>
+                <label class="theme-mode-label"><input type="radio" name="themeMode" value="light"> 亮色</label>
+              </span>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+              <button class="ghost" id="btnThemeCustomSave" style="border-color:#2a9d68;color:#3ecf8e;flex-shrink:0">应用自定义主题</button>
+              <button class="ghost danger" id="btnThemeCustomRemove" style="flex-shrink:0">移除自定义主题</button>
+            </div>
+            <div class="tip" style="margin-top:8px">
+              支持 jpg / png / webp / bmp（≤8MB）。选择图片并选定「暗色/亮色」模式后点应用，图片即作为背景；模式决定文字与面板深浅。
+            </div>
+          </div>
+          <div class="card">
             <h3>模拟环境（测试专用）</h3>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <button class="ghost" id="btnSimOn">🎮 模拟游戏运行</button>
@@ -493,6 +635,150 @@
     let mods = [], dirty = false, filter = 'all', keyword = '';
     let depInfo = { missing: [], cycles: [], order_hints: [], total: 0, bad: 0 };
 
+    /* ---------- 主题系统 ---------- */
+    const THEMES = ['abyss', 'dawn', 'pleasure', 'plague', 'rage', 'mystic', 'emperor'];
+    let customThemeMode = 'dark';  // 当前自定义主题模式（dark/light）
+    let customThemeExists = false;
+    function applyTheme(theme, grad) {
+      const body = document.body;
+      if (theme === 'custom') {
+        body.dataset.theme = 'custom';
+        body.dataset.customMode = body.dataset.customMode || customThemeMode;
+        body.style.background = "url('/api/theme/custom/image?v=' + Date.now()) center/cover no-repeat fixed";
+      } else if (THEMES.includes(theme)) {
+        body.dataset.theme = theme;
+        delete body.dataset.customMode;
+        body.style.background = '';  // 恢复 CSS 渐变
+      }
+      if (['diag', 'hori', 'vert', 'radial'].includes(grad)) {
+        body.dataset.grad = grad;
+      } else {
+        body.dataset.grad = 'diag';
+      }
+      const sel = $('themeSelect');
+      if (sel && (THEMES.includes(theme) || theme === 'custom')) sel.value = theme;
+      document.querySelectorAll('.grad-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.grad === (grad || 'diag') && theme !== 'custom');
+      });
+      const btn = $('btnThemeCustomRemove');
+      if (btn) btn.style.opacity = customThemeExists ? 1 : .45;
+    }
+    async function saveTheme(theme, grad) {
+      try {
+        await api('/api/theme', { method: 'POST', body: JSON.stringify({ theme, grad }) });
+      } catch (e) { /* 静默 */ }
+    }
+    function initTheme() {
+      // 服务端已在 <body data-theme data-grad> 内联持久化主题（含随机展开），这里只同步控件状态
+      const body = document.body;
+      const theme = body.dataset.theme || 'abyss';
+      const grad = body.dataset.grad || 'diag';
+      api('/api/status').then(s => {
+        customThemeMode = (s.custom_theme && s.custom_theme.mode) || 'dark';
+        customThemeExists = !!(s.custom_theme && s.custom_theme.exists);
+        const rndNext = $('themeRandomNext');
+        if (rndNext) rndNext.checked = (s.theme === 'random');  // config 里是 random → 保持勾选
+        if (theme === 'custom' && !customThemeExists) {
+          body.dataset.theme = 'abyss';  // 图片被删了，回退默认
+        }
+        document.querySelectorAll('input[name=themeMode]').forEach(r => {
+          r.checked = (r.value === customThemeMode);
+        });
+        applyTheme(body.dataset.theme || 'abyss', grad);
+      }).catch(() => applyTheme(theme, grad));
+    }
+    function bindThemeUI() {
+      const sel = $('themeSelect');
+      if (sel) sel.addEventListener('change', () => {
+        const v = sel.value;
+        if (v === 'custom' && !customThemeExists) {
+          toast('请先上传自定义主题图片');
+          sel.value = document.body.dataset.theme || 'abyss';
+          return;
+        }
+        applyTheme(v, document.body.dataset.grad || 'diag');
+        const rndNext = $('themeRandomNext');
+        if (rndNext) rndNext.checked = false;  // 手动选主题 = 取消每次启动随机
+        toast('主题已切换');
+        saveTheme(v, document.body.dataset.grad || 'diag');
+      });
+      const rnd = $('btnThemeRandom');
+      if (rnd) rnd.addEventListener('click', () => {
+        const t = THEMES[Math.floor(Math.random() * THEMES.length)];
+        applyTheme(t, document.body.dataset.grad || 'diag');
+        const opt = $('themeSelect') && $('themeSelect').options[THEMES.indexOf(t)];
+        const rndNext = $('themeRandomNext');
+        if (rndNext) rndNext.checked = false;  // 立即随机 = 指定了具体主题
+        toast('🎲 随机主题：' + (opt ? opt.textContent : t));
+        saveTheme(t, document.body.dataset.grad || 'diag');
+      });
+      const rndNext = $('themeRandomNext');
+      if (rndNext) rndNext.addEventListener('change', () => {
+        if (rndNext.checked) {
+          saveTheme('random', document.body.dataset.grad || 'diag');
+          toast('已设置：每次启动随机换主题');
+        } else {
+          saveTheme(document.body.dataset.theme || 'abyss', document.body.dataset.grad || 'diag');
+          toast('已取消：每次启动使用当前主题');
+        }
+      });
+      document.querySelectorAll('.grad-btn').forEach(b => {
+        b.addEventListener('click', () => {
+          const g = b.dataset.grad;
+          applyTheme(document.body.dataset.theme || 'abyss', g);
+          saveTheme(document.body.dataset.theme || 'abyss', g);
+        });
+      });
+      // 自定义主题：上传
+      const saveBtn = $('btnThemeCustomSave');
+      if (saveBtn) saveBtn.addEventListener('click', async () => {
+        const f = $('themeImgInput').files[0];
+        if (!f) { toast('请先选择图片文件'); return; }
+        const mode = document.querySelector('input[name=themeMode]:checked').value;
+        // 先用 FileReader 转 dataURL，立即本地预览（不依赖网络加载）
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const dataUrl = reader.result;
+          const fd = new FormData();
+          fd.append('mode', mode);
+          fd.append('file', f);
+          try {
+            const r = await api('/api/theme/custom', { method: 'POST', body: fd });
+            if (!r || !r.ok) { toast((r && r.error) || '上传失败'); return; }
+            customThemeMode = mode;
+            customThemeExists = true;
+            // 本地 dataURL 直接做背景，立即生效
+            const body = document.body;
+            body.dataset.theme = 'custom';
+            body.dataset.customMode = mode;
+            body.style.background = `url('${dataUrl}') center/cover no-repeat fixed`;
+            document.querySelectorAll('.grad-btn').forEach(b => b.classList.remove('active'));
+            const sel = $('themeSelect');
+            if (sel) sel.value = 'custom';
+            const rndNext = $('themeRandomNext');
+            if (rndNext) rndNext.checked = false;  // 应用自定义主题 = 指定了具体主题
+            saveTheme('custom', body.dataset.grad || 'diag');
+            toast('自定义主题已应用');
+          } catch (e) { toast('上传失败: ' + e.message); }
+        };
+        reader.onerror = () => toast('读取图片失败');
+        reader.readAsDataURL(f);
+      });
+      // 自定义主题：移除
+      const rmBtn = $('btnThemeCustomRemove');
+      if (rmBtn) rmBtn.addEventListener('click', async () => {
+        if (!customThemeExists) { toast('当前没有自定义主题'); return; }
+        try {
+          const r = await api('/api/theme/custom/remove', { method: 'POST' });
+          if (!r || !r.ok) { toast((r && r.error) || '移除失败'); return; }
+          customThemeExists = false;
+          applyTheme('abyss', document.body.dataset.grad || 'diag');
+          saveTheme('abyss', document.body.dataset.grad || 'diag');
+          toast('自定义主题已移除');
+        } catch (e) { toast('移除失败: ' + e.message); }
+      });
+    }
+
     function toast(msg) {
       toastEl.textContent = msg;
       toastEl.classList.add('show');
@@ -500,7 +786,11 @@
       toast._t = setTimeout(() => toastEl.classList.remove('show'), 2200);
     }
     async function api(path, opts = {}) {
-      const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+      const isForm = opts.body instanceof FormData;
+      const res = await fetch(path, {
+        headers: isForm ? {} : { 'Content-Type': 'application/json' },
+        ...opts
+      });
       if (!res.ok) throw new Error((await res.text()) || res.status);
       return res.json();
     }
@@ -1684,6 +1974,8 @@
         else toast('无效目录：' + r.error);
       } catch (e) { toast('保存失败: ' + e.message); }
     });
+    initTheme();
+    bindThemeUI();
     load().catch(e => { $('stats').textContent = '加载失败: ' + e.message; });
   </script>
 </body>

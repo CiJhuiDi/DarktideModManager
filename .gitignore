@@ -17,6 +17,7 @@ profiles/
 release/
 backups_dmf_*/
 demo/
+custom_theme/
 
 # ---- 测试临时目录 ----
 mock/

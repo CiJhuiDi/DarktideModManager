@@ -4,6 +4,7 @@
 只做壳：读/写 mods/mod_load_order.txt，调用 dtkit-patch，不管 mod 加载逻辑。
 """
 import json
+import random
 import io
 import os
 import re
@@ -17,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Body
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -35,6 +36,8 @@ STATIC_DIR = RESOURCE_DIR / "static"
 GAME_FOLDER_NAME = "Warhammer 40,000 DARKTIDE"
 APP_ID = "1361210"
 SYSTEM_MODS = {"base", "dmf"}
+
+THEMES = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor")
 
 app = FastAPI(title="Darktide Mod Manager")
 
@@ -390,6 +393,9 @@ def api_status():
         "patch": patch_state(),
         "game_running": is_game_running(),
         "simulated_game_running": bool(load_config().get("simulate_game_running")),
+        "theme": load_config().get("theme", "abyss"),
+        "grad": load_config().get("grad", "diag"),
+        "custom_theme": custom_theme_state(),
         "dmf": dmf_state(),
     }
 
@@ -451,6 +457,110 @@ def api_simulate_game(body: SimulateGameBody):
     except Exception as e:
         return {"ok": False, "error": f"写入配置失败: {e}"}
     return {"ok": True, "running": body.running, "simulated": True}
+
+
+class ThemeBody(BaseModel):
+    theme: str = ""      # abyss/dawn/pleasure/plague/rage/mystic/emperor/random
+    grad: str = ""       # diag/hori/vert/radial
+
+
+@app.post("/api/theme")
+def api_theme(body: ThemeBody):
+    """保存主题设置（theme + 渐变方向）到 config.json"""
+    valid_themes = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor", "random")
+    valid_grads = ("diag", "hori", "vert", "radial")
+    cfg = load_config()
+    if body.theme in valid_themes:
+        cfg["theme"] = body.theme
+    if body.grad in valid_grads:
+        cfg["grad"] = body.grad
+    try:
+        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        return {"ok": False, "error": f"写入配置失败: {e}"}
+    return {"ok": True, "theme": cfg.get("theme", "abyss"), "grad": cfg.get("grad", "diag")}
+
+
+CUSTOM_THEME_DIR = BASE_DIR / "custom_theme"
+CUSTOM_THEME_MAX_BYTES = 8 * 1024 * 1024  # 8MB
+CUSTOM_THEME_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
+
+
+def custom_theme_img():
+    """返回已存在的自定义主题图片路径（任意 bg.*），无则 None"""
+    if CUSTOM_THEME_DIR.exists():
+        for p in CUSTOM_THEME_DIR.glob("bg.*"):
+            return p
+    return None
+
+
+def custom_theme_state() -> dict:
+    """自定义主题状态：是否存在图片 + 亮/暗模式"""
+    cfg = load_config()
+    return {
+        "exists": custom_theme_img() is not None,
+        "mode": cfg.get("custom_theme_mode", "dark"),
+    }
+
+
+@app.post("/api/theme/custom")
+async def api_theme_custom_upload(mode: str = Form("dark"), file: UploadFile = File(...)):
+    """上传自定义主题背景图（jpg/png/webp/bmp，≤8MB），mode=dark/light"""
+    if mode not in ("dark", "light"):
+        return {"ok": False, "error": "模式只能是 dark 或 light"}
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in CUSTOM_THEME_EXT:
+        return {"ok": False, "error": f"仅支持 {'/'.join(e.lstrip('.') for e in CUSTOM_THEME_EXT)} 格式"}
+    try:
+        data = await file.read()
+    except Exception as e:
+        return {"ok": False, "error": f"读取文件失败: {e}"}
+    if not data:
+        return {"ok": False, "error": "文件内容为空"}
+    if len(data) > CUSTOM_THEME_MAX_BYTES:
+        return {"ok": False, "error": "图片超过 8MB 限制"}
+    try:
+        CUSTOM_THEME_DIR.mkdir(parents=True, exist_ok=True)
+        ext = ".jpg" if ext in (".jpg", ".jpeg") else ext
+        target = CUSTOM_THEME_DIR / ("bg" + ext)
+        target.write_bytes(data)
+        for old in CUSTOM_THEME_DIR.glob("bg.*"):
+            if old.name != target.name:
+                old.unlink(missing_ok=True)
+        cfg = load_config()
+        cfg["theme"] = "custom"
+        cfg["custom_theme_mode"] = mode
+        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        return {"ok": False, "error": f"保存失败: {e}"}
+    return {"ok": True, "mode": mode}
+
+
+@app.get("/api/theme/custom/image")
+def api_theme_custom_image():
+    """返回自定义主题背景图"""
+    img = custom_theme_img()
+    if img is None:
+        raise HTTPException(404, "自定义主题图片不存在")
+    return FileResponse(img)
+
+
+@app.post("/api/theme/custom/remove")
+def api_theme_custom_remove():
+    """移除自定义主题图片，恢复默认主题"""
+    removed = False
+    for old in (CUSTOM_THEME_DIR.glob("bg.*") if CUSTOM_THEME_DIR.exists() else []):
+        old.unlink(missing_ok=True)
+        removed = True
+    cfg = load_config()
+    cfg.pop("custom_theme_mode", None)
+    if cfg.get("theme") == "custom":
+        cfg["theme"] = "abyss"
+    try:
+        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        return {"ok": False, "error": f"写入配置失败: {e}"}
+    return {"ok": True, "removed": removed}
 
 
 def is_game_running_real() -> bool:
@@ -2172,7 +2282,26 @@ def api_profile_delete(name: str):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    """返回主页面，并把持久化主题内联进 body 标签，避免启动闪默认色"""
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    cfg = load_config()
+    theme = cfg.get("theme", "abyss")
+    grad = cfg.get("grad", "diag")
+    if theme == "random":
+        # 每次启动随机一个主题（不固化，保持随机状态）
+        theme = random.choice(THEMES)
+    if theme == "custom":
+        mode = cfg.get("custom_theme_mode", "dark")
+        html = html.replace(
+            '<body data-theme="abyss" data-grad="diag">',
+            f'<body data-theme="custom" data-custom-mode="{mode}" data-grad="{grad}">'
+        )
+    else:
+        html = html.replace(
+            '<body data-theme="abyss" data-grad="diag">',
+            f'<body data-theme="{theme}" data-grad="{grad}">'
+        )
+    return HTMLResponse(html)
 
 
 if __name__ == "__main__":
