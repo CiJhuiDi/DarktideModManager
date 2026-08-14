@@ -1,7 +1,7 @@
 local ModManager = class("ModManager")
 
 local Keyboard = Keyboard
-local BUTTON_INDEX_R = Keyboard.button_index("p")
+local BUTTON_INDEX_R = Keyboard.button_index("r")
 local BUTTON_INDEX_LEFT_SHIFT = Keyboard.button_index("left shift")
 local BUTTON_INDEX_LEFT_CTRL = Keyboard.button_index("left ctrl")
 

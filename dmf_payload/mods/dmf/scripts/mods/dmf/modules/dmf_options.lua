@@ -2,7 +2,7 @@
 local dmf = get_mod("DMF")
 
 local dmf_mod_data = {}
-dmf_mod_data.name = "{#color(255,255,140)}遇到问题私信评论联系B站丁香与黑醋栗{#reset()}"
+dmf_mod_data.name = "暗潮模组框架"
 dmf_mod_data.options = {
   widgets = {
     {

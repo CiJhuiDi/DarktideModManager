@@ -15,6 +15,7 @@ notes.json
 backups/
 profiles/
 release/
+backups_dmf_*/
 
 # ---- 测试临时目录 ----
 mock/
