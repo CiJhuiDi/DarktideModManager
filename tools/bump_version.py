@@ -6,7 +6,7 @@
 """
 import io, re, sys
 
-OLD = "0.2.3"  # 当前版本（如升级路径变化需同步改这里）
+OLD = "0.3.0"  # 当前版本（如升级路径变化需同步改这里）
 NEW = sys.argv[1] if len(sys.argv) > 1 else "0.3.0"
 
 FILES = [

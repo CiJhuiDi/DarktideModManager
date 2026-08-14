@@ -980,6 +980,9 @@ def api_dmf_install(body: DmfInstallBody = Body(default=None)):
             msg += "，补丁已激活，mods 已就绪"
         else:
             msg += f"，但补丁未打上：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
+    pruned = prune_backups()
+    if pruned:
+        msg += f"（已清理 {len(pruned)} 个旧备份）"
     return {"ok": True, "message": msg, "components_installed": installed, "backed_up": backed, **dmf_state()}
 
 
@@ -1283,6 +1286,9 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> di
                 msg += "，补丁已激活，mods 已就绪"
             else:
                 msg += f"，但补丁未打上：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
+        pruned = prune_backups()
+        if pruned:
+            msg += f"（已清理 {len(pruned)} 个旧备份）"
         return {"file": filename, "ok": True, "message": msg,
                 "mods": added, "replaced": replaced, "archived": archived,
                 "root_files": root_files, "load_order": lo_src.is_file(), "mode": mode}
@@ -1343,6 +1349,62 @@ def api_backup_preview(bid: str):
         "bak_count": len(bak_mods),
         "cur_count": len(cur_mods),
     }
+
+
+# 备份保留策略：单类最多保留份数 / backups 总大小上限（字节）
+BACKUP_MAX_PER_TYPE = 10
+BACKUP_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024  # 5GB
+
+
+def prune_backups():
+    """备份清理：
+    1. 单类上限：pack_backup_/dmf_backup_ 各保留最近 BACKUP_MAX_PER_TYPE 份；
+    2. 总量上限：backups 总大小超 BACKUP_MAX_TOTAL_BYTES 时从最旧开始删，直到达标。
+    返回删除的条目列表。"""
+    if not BACKUP_DIR.is_dir():
+        return []
+    removed = []
+
+    # 1. 单类数量上限（pack / dmf 目录类）
+    for prefix in ("pack_backup_", "dmf_backup_"):
+        dirs = sorted((d for d in BACKUP_DIR.iterdir() if d.is_dir() and d.name.startswith(prefix)),
+                      key=lambda d: d.name)
+        for old in dirs[:-BACKUP_MAX_PER_TYPE]:
+            try:
+                shutil.rmtree(old, ignore_errors=True)
+                removed.append(old.name)
+            except Exception:
+                pass
+
+    # 2. 总量上限（含清单散文件）
+    def _dir_size(p: Path) -> int:
+        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+
+    # 收集所有备份条目（目录 + 清单散文件），按名称排序（旧在前）
+    entries = []
+    for d in BACKUP_DIR.iterdir():
+        if d.is_dir() and (d.name.startswith("pack_backup_") or d.name.startswith("dmf_backup_")):
+            entries.append((d.name, _dir_size(d)))
+        elif d.is_file() and d.name.startswith("mod_load_order.") and d.name.endswith(".bak"):
+            entries.append((d.name, d.stat().st_size))
+    entries.sort(key=lambda x: x[0])
+
+    total = sum(sz for _, sz in entries)
+    for name, sz in entries:
+        if total <= BACKUP_MAX_TOTAL_BYTES:
+            break
+        target = BACKUP_DIR / name
+        try:
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            else:
+                target.unlink(missing_ok=True)
+            total -= sz
+            removed.append(name)
+        except Exception:
+            pass
+
+    return removed
 
 
 @app.get("/api/backups")
@@ -1461,6 +1523,9 @@ def api_backup_restore(bid: str):
             msg += "，补丁已激活，mods 已就绪"
         else:
             msg += f"，但补丁未打上：{r.get('error') or '未知原因'}"
+    pruned = prune_backups()
+    if pruned:
+        msg += f"（已清理 {len(pruned)} 个旧备份）"
     return {"ok": True, "message": msg, "restored": restored, "archived": archived}
 
 
