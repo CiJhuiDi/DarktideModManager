@@ -1065,6 +1065,13 @@
         `<span class="k">日志文件</span><span class="v">exe 同目录 app.log</span>` +
         `<span class="k">项目主页</span><span class="v"><button class="link-btn" id="btnOpenRepo">🌐 GitHub</button></span>`;
       $('dirInput').value = '';
+      const repoBtn = $('btnOpenRepo');
+      if (repoBtn) repoBtn.addEventListener('click', async () => {
+        try {
+          const r = await api('/api/open_url', { method: 'POST', body: JSON.stringify({ url: 'https://github.com/CiJhuiDi/DarktideModManager' }) });
+          if (!r.ok && r.error) toast(r.error);
+        } catch (e) { toast('打开失败: ' + e.message); }
+      });
     }
     $('btnSetDir').addEventListener('click', async () => {
       const dir = $('dirInput').value.trim();
@@ -1075,14 +1082,6 @@
         else toast('无效目录：' + r.error);
       } catch (e) { toast('保存失败: ' + e.message); }
     });
-    const repoBtn = $('btnOpenRepo');
-    if (repoBtn) repoBtn.addEventListener('click', async () => {
-      try {
-        const r = await api('/api/open_url', { method: 'POST', body: JSON.stringify({ url: 'https://github.com/CiJhuiDi/DarktideModManager' }) });
-        if (!r.ok && r.error) toast(r.error);
-      } catch (e) { toast('打开失败: ' + e.message); }
-    });
-
     load().catch(e => { $('stats').textContent = '加载失败: ' + e.message; });
   </script>
 </body>
