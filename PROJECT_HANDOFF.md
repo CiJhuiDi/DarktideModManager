@@ -109,6 +109,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 - **位置**：`demo\`（gitignore 不进仓库），用途：拍宣传视频 / 验收新版 exe
 - **重置**：`python tools\reset_demo.py`（清空 → 重建示例 mod → 复制最新 exe）
+- **真实环境展示**：`python tools\pack_demo.py` 生成两种产物——① `demo\backups\pack_backup_<ts>\`（整个文件夹拷到管理器 backups\ 即可在备份页「恢复此备份」）② `demo\演示整合包_v0.3.0.zip`（「导入整合包」导入）
 - **内容**：16 个示例假 mod，覆盖中文名 / 缺依赖 / 循环依赖 / 顺序扩展 / 版本差异 / 禁用 / 无版本
 - **以后新版 exe 同步**：构建后运行 reset_demo.py（自动把 dist 的新 exe 复制进 demo）
 - release 包照旧在 release\
