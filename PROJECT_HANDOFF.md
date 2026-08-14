@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-15 01:00（v0.3.0 发布后）
+> 最后更新：2026-08-15 03:20（v0.3.1 主题系统发布后）
 
 ---
 
@@ -11,7 +11,7 @@
 只做"壳"：管理 mod 启停/顺序/预设/整合包导入，内置 DMF 框架组件，不碰游戏本体。
 
 - **代码位置**：`D:\DeepseekWorkspace\darktide-mod-manager\`
-- **当前版本**：v0.3.0 Beta（2026-08-15 发布，Latest）
+- **当前版本**：v0.3.1 Beta（2026-08-15 发布，Latest；主题系统已并入 v0.3.1，commit 9ed89d0）
 - **GitHub**：https://github.com/CiJhuiDi/DarktideModManager（CiJhuiDi）
 - **游戏目录**：用户在真实 Steam 库（D:\SteamLibrary 下能找到，335 mod 大整合包环境）
 
@@ -27,9 +27,18 @@ CHANGELOG.md         # 更新历史（与用户共同维护，以用户手改为
 RULES.md             # ← 工作条例在 workspace，不在项目里！
 ```
 
-## 三、当前功能全景（v0.3.0）
+## 三、当前功能全景（v0.3.1）
 
 **核心**：一键安装 DMF / 覆盖更新 DMF（force）/ 整合包导入（替换+合并）/ 归档备份找回
+
+**主题系统（v0.3.1 新增）**：
+- 7 套主题（abyss 默认深色/dawn 浅色/pleasure 紫/plague 绿/rage 红/mystic 蓝/emperor 金），下拉切换 + config 持久化
+- 静态渐变背景（--grad-c1/2/3 三段色）+ 面板微透明毛玻璃（backdrop-filter）；4 种渐变方向（diag/hori/vert/radial，body[data-grad]）
+- 🎲 立即随机 + 「每次启动时随机主题」复选框（theme=random 持久化，启动时服务端随机展开不固化）
+- 🖼 自定义主题：上传图片（jpg/png/webp/bmp ≤8MB）存 exe 旁 custom_theme/bg.*，暗/亮模式（data-custom-mode）
+- 启动零闪烁：后端 GET / 把主题内联进 <body data-theme data-grad>，首帧即正确主题
+- 浅色适配：--active-bg/--chosen-bg 等 10+ 硬编码色改为主题变量；关于页布局自适应（卡片全宽、按钮 nowrap）
+- API：POST /api/theme（theme+grad）、POST/GET /api/theme/custom(+image/remove)；status 返回 theme/grad/custom_theme
 
 **Mod 管理**：启停/排序/搜索/中文显示名/右键菜单/方案预设/**批量操作（右键多选模式）**
 
@@ -116,6 +125,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 ## 十、待办 / 可能的下一步
 
-- 用户反馈测试新功能（多选模式/导出/依赖检查/差异对比的实机体验）
+- 用户反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比的实机体验）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
-- 注意 release\DarktideModManager_v0.3.0\ 里可能有用户实际运行产生的 backups/config（本地数据）
+- 注意 release\DarktideModManager_v0.3.1\ 里可能有用户实际运行产生的 backups/config（本地数据）
+- test_pack.py 的 SAMPLE 留空时前置 check 无条件失败（历史遗留脚本 bug，与功能无关，跑测试时可忽略或用真实整合包路径）
