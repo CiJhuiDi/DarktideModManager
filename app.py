@@ -1033,7 +1033,7 @@ class DmfInstallBody(BaseModel):
 @app.post("/api/dmf/install")
 def api_dmf_install(body: DmfInstallBody = Body(default=None)):
     """一键安装/覆盖更新 DMF：释放内置组件（已有文件先备份）→ 恢复自动装载 → 打补丁激活 mods。
-    force=True 时即使已装完整也强制用内置组件覆盖（用于更新/去除旧版私货）。"""
+    force=True 时即使已装完整也强制用内置组件覆盖（用于更新/清除旧版残留组件）。"""
     if not GAME_DIR.is_dir():
         return {"ok": False, "error": "未设置正确的游戏目录，请先到「关于」页设置"}
     if not is_valid_game_dir(GAME_DIR):

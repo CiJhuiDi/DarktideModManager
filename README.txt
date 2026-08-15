@@ -53,7 +53,7 @@
     想测试防呆效果又不想真开游戏？「关于」页有「模拟游戏运行」开关（测试专用）
 11. 覆盖更新 DMF：顶部横幅「✓ DMF 框架已就绪」右侧点「🔄 重新安装框架」，
     强制用内置组件覆盖游戏目录中的 DMF（旧文件自动备份到 backups，可在「备份」页找回），
-    适合更新 DMF 版本或清除旧整合包残留的广告/私货
+    适合更新 DMF 版本或清除旧整合包中的残留组件
 
 ----------------------------------------
 【功能特性】
@@ -78,7 +78,7 @@
   · 导入后自动打补丁激活（游戏运行中则退出后自动补）
 - 内置 DMF（Darktide Mod Framework）全套组件：
   · 加载器 base（mod_manager + function/*，负责读取 mod_load_order.txt 并按序加载 mod）
-  · DMF 本体（mods/dmf，localization 为本项目自译汉化，无广告、无第三方署名）
+  · DMF 本体（mods/dmf，localization 为本项目自译汉化）
   · tools/dtkit-patch.exe + 自动装载插件 _dt_mod_autopatch.dll
   · 自动检测：缺组件时顶部红色横幅提示，一键安装（已有文件先备份到 backups\dmf_backup_*）
   · 覆盖更新：DMF 已装时顶部横幅「🔄 重新安装框架」强制覆盖（旧文件自动备份）

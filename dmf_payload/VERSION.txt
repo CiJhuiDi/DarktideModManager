@@ -2,14 +2,14 @@ DMF 内置组件（一键安装用）
 ==========================
 项目主页：https://github.com/CiJhuiDi/DarktideModManager
 
-来源（2026-08-14 更新为官方原版，去除整合包作者私货）：
+来源（2026-08-14 更新为官方原版）：
 - mods/base/            Darktide Mod Loader 官方 master（mod_manager.lua + function/*）
                         负责读取 mod_load_order.txt 并按序加载 mod
                         官方：https://github.com/Darktide-Mod-Framework/Darktide-Mod-Loader
 - mods/dmf/             Darktide Mod Framework 官方 master（dmf.mod + scripts/mods/dmf/*）
                         提供 DMF API（mod options / hooks / chat commands / keybinds 等）
                         官方：https://github.com/Darktide-Mod-Framework/Darktide-Mod-Framework
-                        汉化：localization/dmf.lua 为本项目自译（无广告、无第三方署名）
+                        汉化：localization/dmf.lua 为本项目自译
 - tools/dtkit-patch.exe dtkit-patch 0.1.8（https://github.com/ManShanko/dtkit-patch）
 - binaries/plugins/_dt_mod_autopatch.dll  自动装载插件 1.0.1（https://github.com/manshanko/dt-mod-autopatch）游戏启动时自动补打补丁；mods/DISABLE_AUTOPATCHER 可禁用（2026-08-15 哈希核验：与官方 release 及丁香整合包/优化包内置完全一致，均官方原版无改动）
 

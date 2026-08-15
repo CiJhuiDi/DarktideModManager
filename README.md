@@ -11,7 +11,7 @@
 
 **开箱即用**
 - **一键安装 DMF**：内置加载器 base + DMF（含中文汉化）+ dtkit-patch + 自动装载插件，检测缺失自动提示，一键释放并打补丁
-- **覆盖更新 DMF**：DMF 已装也随时可点「🔄 重新安装框架」，强制用内置组件覆盖（旧文件自动备份可找回），用于更新版本或清除旧整合包残留的私货
+- **覆盖更新 DMF**：DMF 已装也随时可点「🔄 重新安装框架」，强制用内置组件覆盖（旧文件自动备份可找回），用于更新版本或清除旧整合包中的残留组件
 - **整合包一键导入**：zip / 7z / rar / tar.gz，自动识别结构（兼容外层套目录），两种模式：
   - **替换导入**（推荐）：旧 mods 整体归档到 backups，mods 始终保持当前一套；根目录旧残留文件自动收走
   - **合并叠加**：包内 mod 加进现有 mods（同名覆盖）
@@ -117,7 +117,7 @@ Python · FastAPI · pywebview（Edge WebView2）· 原生 JS · PyInstaller
 | tools/dtkit-patch.exe | [dtkit-patch](https://github.com/ManShanko/dtkit-patch) 0.1.8 |
 | binaries/plugins/_dt_mod_autopatch.dll | [dt-mod-autopatch](https://github.com/manshanko/dt-mod-autopatch) 1.0.1（自动装载，游戏更新后自动重新打补丁） |
 
-组件核心为官方 master 原版，localization 为本项目自译汉化（无广告、无第三方署名）。更新方式：覆盖 `dmf_payload/` 对应路径后重新打包。
+组件核心为官方 master 原版，localization 为本项目自译汉化。更新方式：覆盖 `dmf_payload/` 对应路径后重新打包。
 
 ## ⚠️ 免责声明
 
