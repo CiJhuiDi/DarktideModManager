@@ -7,6 +7,7 @@
 - 幂等：可反复运行
 """
 import json, shutil, re
+from datetime import datetime
 from pathlib import Path
 
 BASE = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
@@ -124,7 +125,105 @@ load_order = [
     json.dumps({'game_dir': str(GAME)}, ensure_ascii=False, indent=2),
     encoding='utf-8')
 
-print(f'✅ 演示环境已构建: {DEMO}')
+# ---------- 演示预设（三组玩法场景，选自丁香整合包精选 mod） ----------
+PROFILES = DEMO / 'profiles'
+PROFILES.mkdir(exist_ok=True)
+
+_DEMO_PRESETS = [
+    # (文件名, 显示名, mods 清单（框架在前→本体→插件扩展）)
+    ('qol', 'QOL · 生活统计', [
+        'Power_DI',                 # 数据统计框架（底层）
+        'scoreboard',               # 计分板本体：任务结束显示各种统计数据
+        'ScoreboardDamage',         # 计分板插件：伤害统计
+        'ScoreboardAbilityUsage',   # 计分板插件：技能使用
+        'ScoreboardAbilityCounter', # 计分板插件：技能次数
+        'ScoreboardExplosive',      # 计分板插件：爆炸伤害
+        'ovenproof_scoreboard_plugin',  # OvenProof 自定义记分板
+        'uptime',                   # 增益持续时间追踪 + 历史记录
+        'CombatStats',              # 战斗统计
+        'TeamKills',                # 击杀/连杀统计板
+        'kill_tracker',             # HUD 击杀连杀追踪
+        'JishuJun',                 # 计数菌（计数统计）
+        'true_level',               # 真实等级显示
+        'NumericUI',                # 数显界面（血韧闪避弹药数值）
+        'minimap',                  # 小地图
+        'objective_tracker',        # 任务目标追踪器
+        'DamageNumbers',            # 伤害数字
+        'show_crit_chance',         # 显示暴击率
+        'AccurateCurioNames',       # 饰品名称实际效果
+        'ItemSorting',              # 物品排序
+        'HazardTimers',             # 危险区域计时
+        'GlowCooldown',             # 技能冷却发光
+        'OublietteTimer',           # 法庭密牢电梯倒计时
+        'Clock',                    # 时钟
+        'Mark9',                    # 罗马数字转阿拉伯数字
+        'SmoothTide',               # 动态画质调节器（性能）
+        'TertiumFixes',             # 特提恩修复（客户端修复合集）
+        'StoryReplay',              # 剧情重放
+        'ManyMoreTry',              # 再来很多局
+    ]),
+    ('ob', 'OB · 观赛模式', [
+        'AlwaysOutline',            # 敌人轮廓线（核心）
+        'GasOutline',               # 毒气中轮廓线修复
+        'TraumaOutlines',           # 显示地板杖爆炸范围
+        'PlayerOutlines',           # 玩家轮廓线
+        'Hound Zero',               # 高亮猎犬引爆范围
+        'TargetHunter',             # 精英/首领 HUD 世界标记
+        'Spidey Sense',             # 蜘蛛感应（敌人攻击预警）
+        'Redshift',                 # 狙击手来袭方向警告
+        'Metal Gear Plasma',        # 等离子炮手袭击警告
+        'SpecialsTracker',          # 专家追踪器（特殊敌人生成/死亡通知）
+        'SpawnFeed',                # 敌人生成通知
+        'RitualZones',              # 仪式区（浩劫恶魔宿主仪式计时）
+        'danger_zone',              # 危险区域范围显示（火/爆炸）
+        'NoCorpses',                # 敌人阵亡立即清除尸体
+        'clear_smoke',              # 清除烟雾
+        'DisableScreenEffects',     # 禁用屏幕特效
+        'FXlimiter',                # 特效限制器
+        'vfx_swapper',              # 视觉特效替换器
+        'soulblaze_vfx_toggle',     # 灵能火焰特效开关
+        'LessDoT',                  # 隐藏异常状态特效
+        'NoRottenArmorSFX',         # 去除腐化装甲音效
+        'CleanForceBlocking',       # 移除力场剑格挡特效
+    ]),
+    ('casual', '轻松游戏 · 自动辅助', [
+        'AutoLoot',                 # 自动拾取（核心）
+        'FullAuto',                 # 全自动开火（核心）
+        'AutoSwing',                # 自动连按轻击重击
+        'KeepSwinging',             # 自动重复轻攻击
+        'UngaBunga',                # 自动近战蓄力攻击
+        'AutoPing',                 # 自动标记（带过滤与优先目标）
+        'AutoBlitz',                # 自动释放闪击
+        'AutoQuell33',              # 灵能者自动散热
+        'AutoMedicaeServoSkull',    # 自动医疗伺服头骨
+        'BrokerAutoStim',           # 自动注射兴奋剂
+        'StickyFingers',            # 自动交互
+        'StickySprint',             # 粘滞疾跑
+        'helbore_passive_charge',   # 卢修斯自动充能
+        'ZealotThrowingKnife',      # 狂信徒自动投掷飞刀
+        'RearGuard',                # 脑后有眼（自动格挡背后偷袭）
+        'ChatBlock',                # 打开聊天/切窗口自动格挡
+        'guarantee_ability_activation',  # 保证技能激活
+        'guarantee_special_action',      # 保证特殊动作
+        'Skitarius',                # 战斗序列（连招编辑器）
+        'NoBrainer',                # 自动化解谜小游戏
+        'AutoBruntRoller',          # 自动军备库刷武器
+        'CurioHunter',              # 饰品猎手（自动购买/提醒）
+        'StimmsPickupIcon',         # 兴奋剂拾取图标
+        'whats_in_the_box',         # 兴奋剂箱里装着什么
+        'FoundYa',                  # 发现物品（交互图标可视/标记距离）
+        'HolyLight',                # 高亮拾取物和箱子
+        'Auto-9 Assistive Reticule',# 机械战警目标扫描锁定框
+    ]),
+]
+
+for fname, disp, mods in _DEMO_PRESETS:
+    data = {'name': disp, 'mods': mods, 'created': datetime.now().isoformat(timespec='seconds')}
+    (PROFILES / f'{fname}.json').write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+
+print(f'[OK] 演示环境已构建: {DEMO}')
 print(f'   mods 数量: {len([d for d in MODS.iterdir() if d.is_dir()])}')
 print(f'   清单: {len(load_order)} 行')
+print(f'   预设: {len(_DEMO_PRESETS)} 组（QOL 生活统计 / OB 观赛模式 / 轻松游戏 自动辅助）')
 print('   场景覆盖: 中文名 / 依赖正常 / 缺依赖 / 循环依赖 / 顺序扩展 / 版本差异 / 禁用 / 无版本')

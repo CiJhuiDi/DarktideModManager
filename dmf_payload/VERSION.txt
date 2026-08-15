@@ -11,7 +11,7 @@ DMF 内置组件（一键安装用）
                         官方：https://github.com/Darktide-Mod-Framework/Darktide-Mod-Framework
                         汉化：localization/dmf.lua 为本项目自译（无广告、无第三方署名）
 - tools/dtkit-patch.exe dtkit-patch 0.1.8（https://github.com/ManShanko/dtkit-patch）
-- binaries/plugins/_dt_mod_autopatch.dll  自动装载插件（游戏启动时自动补打补丁）
+- binaries/plugins/_dt_mod_autopatch.dll  自动装载插件 1.0.1（https://github.com/manshanko/dt-mod-autopatch）游戏启动时自动补打补丁；mods/DISABLE_AUTOPATCHER 可禁用（2026-08-15 哈希核验：与官方 release 及丁香整合包/优化包内置完全一致，均官方原版无改动）
 
 注意：base 与 dmf 均为系统组件，DMF 自动加载，不需要也不允许写进 mod_load_order.txt。
 更新方式：将新版本组件覆盖到 dmf_payload/ 对应路径后重新打包即可。

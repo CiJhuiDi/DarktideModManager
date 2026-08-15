@@ -19,7 +19,7 @@ if DEMO.exists():
             shutil.rmtree(item, ignore_errors=True)
         else:
             item.unlink(missing_ok=True)
-    print('✓ demo 已清空')
+    print('[OK] demo 已清空')
 else:
     DEMO.mkdir(parents=True)
 
@@ -33,13 +33,13 @@ if out:
     print(out)
 if r.returncode != 0:
     err = r.stderr.decode('utf-8', errors='replace')[-500:]
-    print('✗ 构建失败:', err)
+    print('[FAIL] 构建失败:', err)
     sys.exit(1)
 
 # 3. 复制最新 exe
 exe = BASE / 'dist' / 'DarktideModManager.exe'
 if exe.is_file():
     shutil.copy2(exe, DEMO / 'DarktideModManager.exe')
-    print(f'✓ exe 已复制: {exe.name}')
+    print(f'[OK] exe 已复制: {exe.name}')
 
-print('\n✅ 演示环境已重置，可直接打开 demo\\DarktideModManager.exe 验收/拍摄')
+print('\n[OK] 演示环境已重置，可直接打开 demo\\DarktideModManager.exe 验收/拍摄')

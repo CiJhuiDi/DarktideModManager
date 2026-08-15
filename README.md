@@ -115,7 +115,7 @@ Python · FastAPI · pywebview（Edge WebView2）· 原生 JS · PyInstaller
 | mods/base/ | DMF 加载器（读取 mod_load_order.txt 按序加载 mod） |
 | mods/dmf/ | [Darktide Mod Framework](https://github.com/Darktide-Mod-Framework/Darktide-Mod-Framework)（mod 形态，含中文汉化） |
 | tools/dtkit-patch.exe | [dtkit-patch](https://github.com/ManShanko/dtkit-patch) 0.1.8 |
-| binaries/plugins/_dt_mod_autopatch.dll | 自动装载插件（游戏启动时自动补打补丁） |
+| binaries/plugins/_dt_mod_autopatch.dll | [dt-mod-autopatch](https://github.com/manshanko/dt-mod-autopatch) 1.0.1（自动装载，游戏更新后自动重新打补丁） |
 
 组件核心为官方 master 原版，localization 为本项目自译汉化（无广告、无第三方署名）。更新方式：覆盖 `dmf_payload/` 对应路径后重新打包。
 
@@ -126,7 +126,9 @@ Python · FastAPI · pywebview（Edge WebView2）· 原生 JS · PyInstaller
 ## 🙏 致谢
 
 - [Darktide Mod Framework 社区](https://github.com/Darktide-Mod-Framework)
-- [dtkit-patch](https://github.com/ManShanko/dtkit-patch)
+- [dtkit-patch](https://github.com/ManShanko/dtkit-patch)（[ManShanko](https://github.com/manshanko)）
+- [dt-mod-autopatch](https://github.com/manshanko/dt-mod-autopatch)（ManShanko，自动装载插件）
+- [xsSplater](https://github.com/xsSplater)（绕过游戏启动器启动脚本，GPL 3.0）
 - mod 整合包作者们（测试环境参考）
 
 ## 📄 许可证

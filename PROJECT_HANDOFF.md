@@ -113,8 +113,16 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 - 临时脚本/下载别堆 D:\DeepseekWorkspace 顶层（放项目 tools/ 或用完删）
 - 改完必构建 exe（dist + release + zip 三处）
 - 测试先行：改代码先跑测试再打包
+- **新项目/新功能先调研**（竞品/生态/现有方案，确认定位再动手；2026-08-15 用户指定，详见 RULES.md 〇节）
 
-## 九、演示验收环境（demo/）
+## 九、竞品调研结论（2026-08-15，审查时做的）
+
+- 国外主流 = Nexus Mods + Vortex（DMF 官方维护 Vortex 扩展）；DMF 官方无独立 GUI 管理器（只有游戏内 loader + toggle bat）
+- GitHub 暗潮专用管理器全是个人小项目（⭐0-9，install/toggle 级别），本项目是唯一中文暗潮专用 GUI
+- 细分赛道「暗潮专用+独立GUI+中文+整合包导入」是独苗；护城河=整合包导入/防呆/备份找回；主题美化属于与 Vortex 比弱项
+- 功能定位讨论待用户拍板：回归壳（A）/ 转诊断工具（B）/ 维持现状（C）
+
+## 十、演示验收环境（demo/）
 
 - **位置**：`demo\`（gitignore 不进仓库），用途：拍宣传视频 / 验收新版 exe
 - **重置**：`python tools\reset_demo.py`（清空 → 重建示例 mod → 复制最新 exe）
@@ -123,7 +131,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 - **以后新版 exe 同步**：构建后运行 reset_demo.py（自动把 dist 的新 exe 复制进 demo）
 - release 包照旧在 release\
 
-## 十、待办 / 可能的下一步
+## 十一、待办 / 可能的下一步
 
 - 用户反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比的实机体验）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
