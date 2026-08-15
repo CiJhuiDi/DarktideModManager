@@ -1,11 +1,13 @@
 # DMM 暗潮 MOD 管理器
 
+> **多种需求，一站搞定** —— 装框架、导整合包、管启停、存预设、防崩备份，全在一个窗口里。
+
 一款为《战锤40K：暗潮》(Warhammer 40,000: Darktide) 设计的轻量 Mod 管理器。
 
 基于 [Darktide Mod Framework (DMF)](https://www.nexusmods.com/warhammer40kdarktide/mods/8) 的加载机制，只做"壳"：管理 mod 启停、加载顺序、方案预设与整合包导入，不干预游戏本体文件。**内置 DMF 全套组件，新玩家下载后即可一键安装框架开玩。**
 
 > 独立窗口应用（pywebview），Windows 10/11，Steam 版 / Xbox 版均可。
-> 当前为 Beta 测试阶段（v0.2.x），欢迎反馈问题与建议。
+> 当前为 Beta 测试阶段（v0.3.x），欢迎反馈问题与建议。
 
 ## ✨ 功能特性
 
