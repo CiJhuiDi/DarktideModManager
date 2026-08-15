@@ -76,6 +76,9 @@ A：Python 打包程序的常见误报，添加信任即可。源码全开源，
 **Q：用了 Mod 会不会被封？**
 A：官方对 Mod 持开放态度，但联机使用第三方 Mod 需遵守游戏规则，后果自负。
 
+**Q：游戏崩溃，是不是管理器害的？**
+A：不是，管理器只读写 Mod 配置，不碰游戏本体。崩溃多是 Mod 冲突或 Mod 与游戏版本不兼容，禁用逐个 Mod 排查即可。
+
 ### 下载
 
 📥 最新版（v0.2.2）：https://github.com/CiJhuiDi/DarktideModManager/releases
