@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import profiles
 import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
@@ -85,7 +86,7 @@ test('备份恢复', r)
 state.PROFILES_DIR = MOCK / 'profiles_test'
 state.PROFILES_DIR.mkdir(exist_ok=True)
 (state.PROFILES_DIR / 'test.json').write_text(json.dumps({"mods": ["TestModA"]}), encoding='utf-8')
-r = app.api_profile_apply('test')
+r = profiles.api_profile_apply('test')
 test('预设应用', r)
 
 # 清单未被修改

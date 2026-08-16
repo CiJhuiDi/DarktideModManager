@@ -28,7 +28,7 @@ from state import (GAME_FOLDER_NAME, APP_ID, SYSTEM_MODS,
                    load_config, detect_game_dir, find_game_dir, is_valid_game_dir,
                    apply_game_dir)
 from load_order import (read_load_order, write_load_order, backup_load_order,
-                    normalize_entries, enabled_names, is_exact_disable)
+                    normalize_entries, enabled_names, is_exact_disable, set_load_order)
 from patch import (patch_state, is_game_running, is_game_running_real,
                   autopatch_path, autopatch_off_path, auto_patch_disabled,
                   set_auto_patch_disabled, auto_patch_if_needed,
@@ -38,10 +38,16 @@ from imports import (import_mod_archive, import_mod_from_dir,
                      preview_pack_archive, import_pack_archive, _scan_mods_dir,
                      diff_mods, _fmt_ts, prune_backups, export_pack)
 from dmf import dmf_state, install_dmf
+from crash import router as crash_router
+from theme import router as theme_router, custom_theme_state
+from profiles import router as profiles_router, profile_path
 
 THEMES = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor")
 
 app = FastAPI(title="Darktide Mod Manager")
+app.include_router(crash_router)
+app.include_router(theme_router)
+app.include_router(profiles_router)
 
 
 class _JsApi:
@@ -130,110 +136,6 @@ def api_simulate_game(body: SimulateGameBody):
     return {"ok": True, "running": body.running, "simulated": True}
 
 
-class ThemeBody(BaseModel):
-    theme: str = ""      # abyss/dawn/pleasure/plague/rage/mystic/emperor/random
-    grad: str = ""       # diag/hori/vert/radial
-
-
-@app.post("/api/theme")
-def api_theme(body: ThemeBody):
-    """保存主题设置（theme + 渐变方向）到 config.json"""
-    valid_themes = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor", "random")
-    valid_grads = ("diag", "hori", "vert", "radial")
-    cfg = load_config()
-    if body.theme in valid_themes:
-        cfg["theme"] = body.theme
-    if body.grad in valid_grads:
-        cfg["grad"] = body.grad
-    try:
-        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:
-        return {"ok": False, "error": f"写入配置失败: {e}"}
-    return {"ok": True, "theme": cfg.get("theme", "abyss"), "grad": cfg.get("grad", "diag")}
-
-
-CUSTOM_THEME_DIR = state.BASE_DIR / "custom_theme"
-CUSTOM_THEME_MAX_BYTES = 8 * 1024 * 1024  # 8MB
-CUSTOM_THEME_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
-
-
-def custom_theme_img():
-    """返回已存在的自定义主题图片路径（任意 bg.*），无则 None"""
-    if CUSTOM_THEME_DIR.exists():
-        for p in CUSTOM_THEME_DIR.glob("bg.*"):
-            return p
-    return None
-
-
-def custom_theme_state() -> dict:
-    """自定义主题状态：是否存在图片 + 亮/暗模式"""
-    cfg = load_config()
-    return {
-        "exists": custom_theme_img() is not None,
-        "mode": cfg.get("custom_theme_mode", "dark"),
-    }
-
-
-@app.post("/api/theme/custom")
-async def api_theme_custom_upload(mode: str = Form("dark"), file: UploadFile = File(...)):
-    """上传自定义主题背景图（jpg/png/webp/bmp，≤8MB），mode=dark/light"""
-    if mode not in ("dark", "light"):
-        return {"ok": False, "error": "模式只能是 dark 或 light"}
-    ext = Path(file.filename or "").suffix.lower()
-    if ext not in CUSTOM_THEME_EXT:
-        return {"ok": False, "error": f"仅支持 {'/'.join(e.lstrip('.') for e in CUSTOM_THEME_EXT)} 格式"}
-    try:
-        data = await file.read()
-    except Exception as e:
-        return {"ok": False, "error": f"读取文件失败: {e}"}
-    if not data:
-        return {"ok": False, "error": "文件内容为空"}
-    if len(data) > CUSTOM_THEME_MAX_BYTES:
-        return {"ok": False, "error": "图片超过 8MB 限制"}
-    try:
-        CUSTOM_THEME_DIR.mkdir(parents=True, exist_ok=True)
-        ext = ".jpg" if ext in (".jpg", ".jpeg") else ext
-        target = CUSTOM_THEME_DIR / ("bg" + ext)
-        target.write_bytes(data)
-        for old in CUSTOM_THEME_DIR.glob("bg.*"):
-            if old.name != target.name:
-                old.unlink(missing_ok=True)
-        cfg = load_config()
-        cfg["theme"] = "custom"
-        cfg["custom_theme_mode"] = mode
-        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:
-        return {"ok": False, "error": f"保存失败: {e}"}
-    return {"ok": True, "mode": mode}
-
-
-@app.get("/api/theme/custom/image")
-def api_theme_custom_image():
-    """返回自定义主题背景图"""
-    img = custom_theme_img()
-    if img is None:
-        raise HTTPException(404, "自定义主题图片不存在")
-    return FileResponse(img)
-
-
-@app.post("/api/theme/custom/remove")
-def api_theme_custom_remove():
-    """移除自定义主题图片，恢复默认主题"""
-    removed = False
-    for old in (CUSTOM_THEME_DIR.glob("bg.*") if CUSTOM_THEME_DIR.exists() else []):
-        old.unlink(missing_ok=True)
-        removed = True
-    cfg = load_config()
-    cfg.pop("custom_theme_mode", None)
-    if cfg.get("theme") == "custom":
-        cfg["theme"] = "abyss"
-    try:
-        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:
-        return {"ok": False, "error": f"写入配置失败: {e}"}
-    return {"ok": True, "removed": removed}
-
-
 @app.post("/api/patch/auto")
 def api_patch_auto():
     return auto_patch_if_needed()
@@ -289,79 +191,6 @@ def api_patch_uninstall():
 
 
 # ---------------------------------------------------------------- 启动游戏（绕过启动器）
-
-GAME_LAUNCH_ARGS = [
-    "--bundle-dir", "../bundle", "--ini", "settings",
-    "--backend-auth-service-url", "https://bsp-auth-prod.atoma.cloud",
-    "--backend-title-service-url", "https://bsp-td-prod.atoma.cloud",
-    "--lua-heap-mb-size", "2048",
-]
-
-_launched_game = None  # 管理器启动的游戏进程（崩溃检测读退出码用）
-
-
-@app.post("/api/game/launch")
-def api_launch_game():
-    if not is_valid_game_dir(state.GAME_DIR):
-        return {"ok": False, "error": "未设置正确的游戏目录"}
-    if is_game_running():
-        return {"ok": False, "error": "游戏已在运行"}
-    # 自动装载：启动游戏前补打补丁（若用户未手动禁用）
-    auto_patch_if_needed()
-    exe = state.GAME_DIR / "binaries" / "Darktide.exe"
-    if not exe.exists():
-        exe = state.GAME_DIR / "content" / "binaries" / "Darktide.exe"
-    if not exe.exists():
-        return {"ok": False, "error": "未找到 Darktide.exe，请检查游戏文件完整性"}
-    try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                             capture_output=True, text=True, timeout=10,
-                             creationflags=CREATE_NO_WINDOW).stdout
-        if "steam.exe" not in out.lower():
-            return {"ok": False, "error": "未检测到 Steam 客户端，请先启动 Steam 并登录"}
-    except Exception:
-        pass
-    env = os.environ.copy()
-    env["SteamAppId"] = APP_ID
-    try:
-        proc = subprocess.Popen([str(exe)] + GAME_LAUNCH_ARGS, cwd=str(exe.parent),
-                                env=env, creationflags=CREATE_NO_WINDOW)
-        # 保存句柄：崩溃检测时可读取退出码（异常退出码为负值，如 0xC0000005）
-        global _launched_game
-        _launched_game = {"proc": proc, "pid": proc.pid}
-        return {"ok": True, "message": "游戏启动中，请稍候…"}
-    except Exception as e:
-        return {"ok": False, "error": f"启动失败: {e}"}
-
-
-def is_crash_code(code) -> bool:
-    """NTSTATUS 异常码识别：0xC0000000~0xCFFFFFFF（崩溃/错误状态）。
-    Windows 下 GetExitCodeProcess 可能返回有符号负数或对应无符号值，两种都覆盖。"""
-    if code is None:
-        return False
-    u = (code & 0xFFFFFFFF)
-    return 0xC0000000 <= u <= 0xCFFFFFFF
-
-
-@app.get("/api/game/launched_exit")
-def api_launched_exit():
-    """管理器启动的游戏进程退出状态：运行中 exit_code=None；已退出返回退出码。
-    崩溃时 Windows 返回 NTSTATUS 异常码（如 0xC0000005），crashed=True。"""
-    global _launched_game
-    proc = _launched_game.get("proc") if _launched_game else None
-    if proc is None:
-        return {"ok": True, "launched": False, "exit_code": None, "crashed": False}
-    code = proc.poll()
-    if code is None:
-        return {"ok": True, "launched": True, "exit_code": None, "crashed": False}  # 仍在运行
-    # 已退出：取回句柄状态后清除，避免重复读取
-    try:
-        proc.wait(timeout=5)
-    except Exception:
-        pass
-    _launched_game = None
-    return {"ok": True, "launched": True, "exit_code": code, "crashed": is_crash_code(code)}
-
 
 # ---------------------------------------------------------------- mod 导入
 
@@ -786,75 +615,6 @@ class NoteBody(BaseModel):
 
 # ---------------------------------------------------------------- 崩溃日志
 
-CRASH_ROOT = Path(os.environ.get("APPDATA", "")) / "Fatshark" / "Darktide"
-
-
-def _latest_log_file(d: Path):
-    """目录内最新文件 {name,time}；目录不存在或为空返回 None"""
-    if not d.is_dir():
-        return None
-    files = [f for f in d.iterdir() if f.is_file()]
-    if not files:
-        return None
-    newest = max(files, key=lambda f: f.stat().st_mtime)
-    return {
-        "name": newest.name,
-        "time": datetime.fromtimestamp(newest.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
-    }
-
-
-@app.get("/api/crash_logs")
-def api_crash_logs():
-    """崩溃排查信息：console_logs（教程说的控制台文本日志）+ crash_dumps 最新文件"""
-    if not CRASH_ROOT.is_dir():
-        return {"ok": False, "error": "未找到 Fatshark 游戏日志目录（%APPDATA%\\Fatshark\\Darktide）"}
-    return {
-        "ok": True,
-        "dir": str(CRASH_ROOT),
-        "console": _latest_log_file(CRASH_ROOT / "console_logs"),  # 控制台日志（文本，可直接看报错）
-        "latest": _latest_log_file(CRASH_ROOT / "crash_dumps"),    # 崩溃转储（.dmp 二进制）
-    }
-
-
-@app.post("/api/crash_logs/open")
-def api_crash_logs_open():
-    """打开排查日志目录：优先 console_logs（文本控制台日志），其次 crash_dumps，最后根目录"""
-    if not CRASH_ROOT.is_dir():
-        return {"ok": False, "error": "未找到 Fatshark 游戏日志目录"}
-    for name in ("console_logs", "crash_dumps"):
-        target = CRASH_ROOT / name
-        if not target.is_dir():
-            continue
-        try:
-            os.startfile(str(target))  # type: ignore[attr-defined]
-            hint = "（文本日志，可直接用记事本打开看报错）" if name == "console_logs" else "（.dmp 二进制转储，需专业工具分析）"
-            return {"ok": True, "message": f"已打开 {name} 目录 {hint}"}
-        except Exception as e:
-            return {"ok": False, "error": f"打开失败: {e}"}
-    try:
-        os.startfile(str(CRASH_ROOT))
-        return {"ok": True, "message": "已打开 Fatshark 游戏日志目录"}
-    except Exception as e:
-        return {"ok": False, "error": f"打开失败: {e}"}
-
-
-class UrlBody(BaseModel):
-    url: str
-
-
-@app.post("/api/open_url")
-def api_open_url(body: UrlBody):
-    """在系统默认浏览器打开链接（关于页项目主页用）"""
-    url = body.url.strip()
-    if not url.startswith(("https://", "http://")):
-        return {"ok": False, "error": "无效链接"}
-    try:
-        webbrowser.open(url)
-        return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
 @app.post("/api/export/open_folder")
 def api_export_open_folder():
     """打开导出目录（exports/）"""
@@ -1163,96 +923,8 @@ def api_set_order(body: OrderBody):
     g = guard_game_running("修改启停清单")
     if g:
         return g
-    entries = read_load_order()
-    enabled_set = set(body.mods)
+    return set_load_order(body.mods)
 
-    # 收集已知 mod（含精确禁用行），说明注释/空行原样保留
-    known, seen, kept = [], set(), []
-    for e in entries:
-        name = None
-        if e["kind"] == "mod":
-            name = e["name"]
-        elif e["kind"] == "comment" and is_exact_disable(e["raw"]):
-            name = e["raw"].strip()[2:].strip()
-        if name:
-            if name not in seen:
-                seen.add(name)
-                known.append((name, e["kind"] == "mod"))
-        else:
-            kept.append(e)
-
-    disabled = [n for n, _ in known if n not in enabled_set]
-    new_lines = (
-        [{"kind": "mod", "raw": n, "name": n} for n in body.mods]
-        + [{"kind": "comment", "raw": "--" + n} for n in disabled]
-    )
-    out = kept + new_lines
-    write_load_order(out)
-    return {"ok": True, "enabled": body.mods, "disabled": disabled}
-
-
-# ---------------------------------------------------------------- 预设
-
-def profile_path(name: str) -> Path:
-    safe = re.sub(r'[\\/:*?"<>|]', "_", name.strip())
-    if not safe:
-        raise HTTPException(400, "预设名不能为空")
-    return state.PROFILES_DIR / f"{safe}.json"
-
-
-@app.get("/api/profiles")
-def api_profiles():
-    if not state.PROFILES_DIR.is_dir():
-        return {"profiles": []}
-    profiles = []
-    for f in sorted(state.PROFILES_DIR.glob("*.json")):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            profiles.append({
-                "name": data.get("name", f.stem),
-                "mods": data.get("mods", []),
-                "count": len(data.get("mods", [])),
-                "created": data.get("created", ""),
-            })
-        except Exception:
-            continue
-    return {"profiles": profiles}
-
-
-class ProfileBody(BaseModel):
-    name: str
-
-
-@app.post("/api/profiles")
-def api_profile_save(body: ProfileBody):
-    entries = read_load_order()
-    mods = enabled_names(entries)
-    state.PROFILES_DIR.mkdir(exist_ok=True)
-    data = {"name": body.name.strip(), "mods": mods, "created": datetime.now().isoformat(timespec="seconds")}
-    profile_path(body.name).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"ok": True, "profile": data}
-
-
-@app.post("/api/profiles/{name}/apply")
-def api_profile_apply(name: str):
-    p = profile_path(name)
-    if not p.exists():
-        raise HTTPException(404, "预设不存在")
-    data = json.loads(p.read_text(encoding="utf-8"))
-    return api_set_order(OrderBody(mods=data.get("mods", [])))
-
-
-@app.delete("/api/profiles/{name}")
-def api_profile_delete(name: str):
-    p = profile_path(name)
-    if p.exists():
-        p.unlink()
-    return {"ok": True}
-
-
-# ---------------------------------------------------------------- 静态页
-
-@app.get("/")
 def index():
     """返回主页面，并把持久化主题内联进 body 标签，避免启动闪默认色"""
     html = (state.STATIC_DIR / "index.html").read_text(encoding="utf-8")

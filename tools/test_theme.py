@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import theme
 import state
 
 MOCK = Path(r'D:\DeepseekWorkspace\darktide-mod-manager\mock')
@@ -20,24 +21,24 @@ def test(name, cond, detail=''):
     print(f"[{'OK ' if cond else 'FAIL'}] {name}" + (f'  <- {detail}' if detail else ''))
 
 print('=== 保存主题 ===')
-r = app.api_theme(app.ThemeBody(theme='pleasure', grad='radial'))
+r = theme.api_theme(theme.ThemeBody(theme='pleasure', grad='radial'))
 test('保存 ok', r.get('ok'), r)
 test('主题已存', r.get('theme') == 'pleasure', r)
 test('方向已存', r.get('grad') == 'radial', r)
 
 print('=== 只改方向 ===')
-r = app.api_theme(app.ThemeBody(grad='hori'))
+r = theme.api_theme(theme.ThemeBody(grad='hori'))
 test('只改方向 ok', r.get('ok'))
 test('主题不变', r.get('theme') == 'pleasure', r)
 test('方向=hori', r.get('grad') == 'hori', r)
 
 print('=== 非法值忽略 ===')
-r = app.api_theme(app.ThemeBody(theme='hacker', grad='spin'))
+r = theme.api_theme(theme.ThemeBody(theme='hacker', grad='spin'))
 test('非法主题忽略', r.get('theme') == 'pleasure', r)
 test('非法方向忽略', r.get('grad') == 'hori', r)
 
 print('=== random 可保存 ===')
-r = app.api_theme(app.ThemeBody(theme='random'))
+r = theme.api_theme(theme.ThemeBody(theme='random'))
 test('random 可存', r.get('theme') == 'random', r)
 
 print('=== status 返回主题 ===')

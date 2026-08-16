@@ -30,15 +30,14 @@ CHANGELOG.md         # 更新历史（与用户共同维护，以用户手改为
 RULES.md             # ← 工作条例在 workspace，不在项目里！
 ```
 
-> 架构拆分进行中（方案 C 分段迁移）：已完成 state.py（路径/配置/游戏目录域）、
-> load_order.py（清单读写规范化）、patch.py（补丁/防呆守卫/自动装载）、mods.py（扫描/显示名/备注/依赖）、
-> imports.py（导入/整合包/备份/导出）、dmf.py（DMF 安装）；
-> 剩余：崩溃/主题/预设等 API 路由收敛（app.py 已从 2443 行降到 ~1380 行）。
-> 每拆一个模块跑全量测试（test_api + tools/test_*.py），拆完可独立提交回滚。
-> ⚠️ 测试脚本约定：直接 import app 的测试用 state.XXX = 覆盖全局（不是 app.XXX，
->    值拷贝陷阱）；guard 相关测试需同时覆盖 patch.is_game_running；已统一加 stdout reconfigure 防 GBK 崩。
-> ⚠️ 业务模块内调用 patch 函数用 patch.xxx() 属性访问（不是 from patch import xxx 绑定，
->    否则测试覆盖 patch.xxx 无效）；test_pack 的 SAMPLE 留空前置 check 无条件失败是已知历史 bug，可忽略。
+> 架构拆分（方案 C）已完成全部阶段：state.py（路径/配置/游戏目录）、load_order.py（清单+set_load_order）、
+> patch.py（补丁/守卫）、mods.py（扫描/显示名/依赖）、imports.py（导入/整合包/备份/导出）、dmf.py（DMF 安装）、
+> crash.py（启动/崩溃检测/控制台日志，APIRouter）、theme.py（主题/自定义背景，APIRouter）、profiles.py（预设，APIRouter）。
+> **app.py 从 2443 行降到 ~1050 行**（路由装配 + mod 管理 API + main）。
+> ⚠️ 测试脚本约定：直接 import app 的测试用 state.XXX = 覆盖全局（不是 app.XXX，值拷贝陷阱）；
+>     guard 相关测试需同时覆盖 patch.is_game_running；模块内调用 patch 函数用 patch.xxx() 属性访问；
+>     主题相关测试覆盖 theme.CUSTOM_THEME_DIR（模块级常量，改 state.BASE_DIR 无效）；已统一 stdout reconfigure 防 GBK。
+> ⚠️ test_pack 的 SAMPLE 留空前置 check 无条件失败是已知历史 bug，可忽略。
 
 ## 三、当前功能全景（v0.3.1）
 
