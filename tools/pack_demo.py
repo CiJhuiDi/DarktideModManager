@@ -2,7 +2,7 @@
 """
 把 demo 示例 mod 打包成「管理器可恢复的归档备份」+ 标准整合包 zip：
 1. demo/backups/pack_backup_<时间戳>/mods/...   ← 复制到真实管理器 backups/ 即可在备份页看到并恢复
-2. demo/演示整合包_v0.3.0.zip                  ← 也可用「导入整合包」导入
+2. demo/演示整合包_v0.4.0.zip                  ← 也可用「导入整合包」导入
 用法: python tools/pack_demo.py
 """
 import zipfile, shutil, sys, datetime
@@ -30,7 +30,7 @@ if lo.is_file():
     shutil.copy2(lo, bak_dir / 'mod_load_order.txt')
 
 # 2. 标准整合包 zip
-out_zip = DEMO / '演示整合包_v0.3.0.zip'
+out_zip = DEMO / '演示整合包_v0.4.0.zip'
 with zipfile.ZipFile(out_zip, 'w', zipfile.ZIP_DEFLATED) as z:
     for d in sorted(MODS.iterdir()):
         if not d.is_dir() or d.name in ('base', 'dmf'):
@@ -49,4 +49,4 @@ print('  把 demo\\backups\\pack_backup_<ts> 整个文件夹复制到管理器 e
 print('  打开管理器「备份」页 → 找到「整合包归档」→ 点「恢复此备份」即可在真实环境展示。')
 print()
 print('用法 B（导入整合包）:')
-print('  管理器「＋ 导入」→「导入 Mod/整合包」→ 选 演示整合包_v0.3.0.zip → 替换导入。')
+print('  管理器「＋ 导入」→「导入 Mod/整合包」→ 选 演示整合包_v0.4.0.zip → 替换导入。')

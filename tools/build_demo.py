@@ -34,7 +34,7 @@ bundle = GAME / 'bundle'
 bundle.mkdir(parents=True, exist_ok=True)
 
 # ---------- 示例 mod 生成 ----------
-def make_mod(folder, name, version='1.0.0', packages=None, display_name=None):
+def make_mod(folder, name, version='1.0.0', packages=None, display_name=None, description=None):
     """生成一个假 mod（进游戏不报错）：标准 DMF 结构 .mod + localization + script"""
     d = MODS / folder
     d.mkdir(parents=True, exist_ok=True)
@@ -61,46 +61,64 @@ def make_mod(folder, name, version='1.0.0', packages=None, display_name=None):
         f'-- demo mod: {name} (fake data, no real function)\nreturn {{}}\n', encoding='utf-8')
     (scripts / f'{folder}_data.lua').write_text('return {}\n', encoding='utf-8')
     (scripts / f'{folder}_localization.lua').write_text('return {}\n', encoding='utf-8')
-    # 中文显示名（额外 localization 文件，格式: mod_name = { ["zh-cn"] = "..." }）
-    if display_name:
+    # 中文显示名 + 悬停描述（额外 localization 文件，格式: mod_name/mod_description = { ["zh-cn"] = "..." }）
+    if display_name or description:
         loc = d / 'localization'
         loc.mkdir(exist_ok=True)
-        (loc / f'{folder}_localization.lua').write_text(
-            'return {\n  mod_name = {\n    ["zh-cn"] = "' + display_name + '",\n  },\n}\n',
-            encoding='utf-8')
+        lines = ['return {']
+        if display_name:
+            lines.append('  mod_name = {')
+            lines.append(f'    ["zh-cn"] = "{display_name}",')
+            lines.append('  },')
+        if description:
+            lines.append('  mod_description = {')
+            lines.append(f'    ["zh-cn"] = "{description}",')
+            lines.append('  },')
+        lines.append('}\n')
+        (loc / f'{folder}_localization.lua').write_text('\n'.join(lines), encoding='utf-8')
     return d
 
 # ---------- 场景设计 ----------
 
-# 1. 正常 mod（中文显示名）
-make_mod('AutoLoot', 'AutoLoot', '2.1.0', display_name='自动拾取')
-make_mod('BetterBots', 'BetterBots', '1.4.2', display_name='智能队友AI')
-make_mod('NumericUI', 'NumericUI', '0.9.5', display_name='数值UI')
+# 1. 正常 mod（中文显示名 + 悬停描述）
+make_mod('AutoLoot', 'AutoLoot', '2.1.0', display_name='自动拾取',
+         description='自动拾取地面战利品：弹药、医疗包、手雷等，可配置拾取范围与优先级过滤。')
+make_mod('BetterBots', 'BetterBots', '1.4.2', display_name='智能队友AI',
+         description='增强队友 AI：更聪明的走位、集火目标、救援与协作行为。')
+make_mod('NumericUI', 'NumericUI', '0.9.5', display_name='数值UI',
+         description='在 HUD 显示精确数值：生命、韧性、弹药、闪避充能等。')
 
 # 2. 依赖关系场景
 # 本体库（名字避免包含关系，防止顺序启发式误报）
-make_mod('sb_core', 'sb_core', '1.0.0')
-make_mod('ui_core', 'ui_core', '2.0.0')
+make_mod('sb_core', 'sb_core', '1.0.0', description='计分板核心库：提供统计数据接口供计分板系列 mod 调用。')
+make_mod('ui_core', 'ui_core', '2.0.0', description='UI 核心库：统一 HUD 元素布局与主题适配。')
 # 依赖正常（依赖 sb_core + ui_core）
-make_mod('Scoreboard', 'Scoreboard', '1.2.0', packages=['sb_core', 'ui_core'], display_name='计分板')
+make_mod('Scoreboard', 'Scoreboard', '1.2.0', packages=['sb_core', 'ui_core'], display_name='计分板',
+         description='任务结束后显示详细战绩统计：击杀、伤害、爆头率、救人与倒地等。')
 # 缺依赖（依赖 lib_missing 不存在）
-make_mod('MissingDep', 'MissingDep', '1.0.0', packages=['lib_missing'], display_name='缺失依赖示例')
+make_mod('MissingDep', 'MissingDep', '1.0.0', packages=['lib_missing'], display_name='缺失依赖示例',
+         description='演示缺依赖场景：依赖的 lib_missing 未安装，列表会显示红色缺依赖徽标。')
 # 循环依赖
-make_mod('CycleA', 'CycleA', '1.0.0', packages=['cycleb'])
-make_mod('CycleB', 'CycleB', '1.0.0', packages=['cyclea'])
+make_mod('CycleA', 'CycleA', '1.0.0', packages=['cycleb'], description='演示循环依赖场景 A：与 CycleB 互相依赖，列表显示循环徽标。')
+make_mod('CycleB', 'CycleB', '1.0.0', packages=['cyclea'], description='演示循环依赖场景 B：与 CycleA 互相依赖，列表显示循环徽标。')
 
 # 3. 顺序扩展场景（本体在前，扩展在后）
-make_mod('ScoreboardDamage', 'ScoreboardDamage', '1.1.0', display_name='计分板-伤害统计')
-make_mod('ScoreboardAbility', 'ScoreboardAbility', '1.0.3', display_name='计分板-技能统计')
+make_mod('ScoreboardDamage', 'ScoreboardDamage', '1.1.0', display_name='计分板-伤害统计',
+         description='计分板插件：展示伤害输出细分（近战/远程/手雷/灵能）。')
+make_mod('ScoreboardAbility', 'ScoreboardAbility', '1.0.3', display_name='计分板-技能统计',
+         description='计分板插件：展示技能使用次数与命中率。')
 
 # 4. 版本差异场景（演示差异对比用）
-make_mod('OldMod', 'OldMod', '0.5.0', display_name='旧版mod')
+make_mod('OldMod', 'OldMod', '0.5.0', display_name='旧版mod',
+         description='旧版本示例：导入整合包时用于演示「更新」差异行。')
 
 # 5. 禁用的 mod（清单里 -- 注释）
-make_mod('DisabledMod', 'DisabledMod', '1.0.0', display_name='已禁用示例')
+make_mod('DisabledMod', 'DisabledMod', '1.0.0', display_name='已禁用示例',
+         description='已禁用 mod 示例：清单中以 -- 注释，默认灰显不加载。')
 
 # 6. 无版本号 mod
-make_mod('NoVersion', 'NoVersion', '', display_name='无版本示例')
+make_mod('NoVersion', 'NoVersion', '', display_name='无版本示例',
+         description='无版本号示例：副标题不显示版本，兼容旧格式 mod。')
 
 # ---------- 启停清单 ----------
 load_order = [
