@@ -26,6 +26,11 @@
 - 搜索框新增一键清空按钮
 - 「模拟游戏运行」新增「💥 模拟游戏崩溃」按钮（测试崩溃弹窗流程用）
 
+**架构重构与修复（v0.3.1 后）**
+- 后端架构拆分：app.py 2443 → 1054 行，业务模块归入 core/ 包（state/load_order/patch/mods/imports/dmf/crash/theme/profiles）
+- 修复：exe 打包后空白页（首页路由装饰器被迁移脚本吞掉）、frozen 模式路径错乱（BASE_DIR 取到 exe 文件本身）
+- 新增 tools/start_test_env.py 一键测试环境（杀进程→清端口→建 mock→起服务）
+
 ## v0.3.1（2026-08-15）
 
 **主题切换（7 主题 + 渐变 + 自定义背景）**

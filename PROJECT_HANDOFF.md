@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-16 08:50（崩溃检测 + 控制台日志 + 文档同步）
+> 最后更新：2026-08-16 10:40（架构拆分收官 + core 包 + alpha 测试构建）
 
 ---
 
@@ -11,7 +11,9 @@
 只做"壳"：管理 mod 启停/顺序/预设/整合包导入，内置 DMF 框架组件，不碰游戏本体。
 
 - **代码位置**：`D:\DeepseekWorkspace\darktide-mod-manager\`
-- **当前版本**：v0.3.1 Beta（2026-08-15 发布，Latest；主题系统已并入 v0.3.1，commit 9ed89d0）
+- **当前版本**：v0.3.1（正式版基线，2026-08-15 发布）；工作区已含 v0.4.0 功能集（崩溃检测/控制台日志/目录优化/架构重构）
+- **测试形态**：Alpha 测试版（`release\DarktideModManager_alpha\`，界面只标 Alpha、不带版本号、不打 zip）；
+  正式发布时再 bump 版本 + CHANGELOG 定版 + 打 zip（RULES 第 9 条）
 - **GitHub**：https://github.com/CiJhuiDi/DarktideModManager（CiJhuiDi）
 - **游戏目录**：用户在真实 Steam 库（D:\SteamLibrary 下能找到，335 mod 大整合包环境）
 
