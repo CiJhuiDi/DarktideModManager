@@ -9,6 +9,7 @@ dist/
 7zbin/
 
 # ---- 运行生成（本地数据，含本机路径，勿提交）----
+exports/
 config.json
 app.log
 notes.json

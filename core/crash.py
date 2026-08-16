@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """游戏启动 / 崩溃检测 / 崩溃日志（APIRouter 路由）。"""
+import json
 import os
+import re
 import subprocess
 import webbrowser
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -154,3 +157,105 @@ def api_open_url(body: UrlBody):
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------- 实验模式：日志预览 / 崩溃报告导出
+
+LOG_ERROR_PATTERN = re.compile(r'(?i)(error|exception|fatal|critical|failed|luascript|lua error)')
+LOG_WARN_PATTERN = re.compile(r'(?i)(warning|\bwarn\b)')
+
+
+def classify_log_line(ln: str) -> str:
+    """日志行分类：err（错误）/ warn（警告）/ ok（通常）"""
+    if LOG_ERROR_PATTERN.search(ln):
+        return 'err'
+    if LOG_WARN_PATTERN.search(ln):
+        return 'warn'
+    return 'ok'
+
+
+def _row(ln: str) -> dict:
+    level = classify_log_line(ln)
+    return {"text": ln, "err": level == 'err', "warn": level == 'warn', "level": level}
+
+
+def _read_latest_console(tail: int = 300) -> dict | None:
+    """读最新控制台日志尾部，行分类；无日志返回 None"""
+    if not CRASH_ROOT.is_dir():
+        return None
+    latest = _latest_log_file(CRASH_ROOT / "console_logs")
+    if not latest:
+        return None
+    p = CRASH_ROOT / "console_logs" / latest["name"]
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+    lines = text.splitlines()[-tail:]
+    rows = [_row(ln) for ln in lines]
+    return {"file": latest["name"], "time": latest["time"], "lines": rows, "total": len(lines)}
+
+
+@router.get("/api/crash_logs/read")
+def api_crash_logs_read(tail: int = 300):
+    """【实验】读取最新控制台日志尾部，疑似错误行 err=True（供预览高亮）"""
+    data = _read_latest_console(max(50, min(tail, 1000)))
+    if data is None:
+        return {"ok": False, "error": "未找到控制台日志"}
+    return {"ok": True, **data}
+
+
+class LogAnalyzeBody(BaseModel):
+    name: str = ""
+    content: str = ""
+
+
+@router.post("/api/crash_logs/analyze")
+def api_crash_logs_analyze(body: LogAnalyzeBody):
+    """【实验】分析导入的旧日志文本：行分类（err/warn/ok，限制 2MB / 尾部 2000 行）"""
+    content = (body.content or "")[:2_000_000]
+    lines = content.splitlines()[-2000:]
+    rows = [_row(ln) for ln in lines]
+    return {"ok": True, "file": (body.name or "导入日志"), "lines": rows, "total": len(lines)}
+
+
+@router.post("/api/crash_logs/export")
+def api_crash_logs_export():
+    """【实验】导出崩溃报告 zip：最新控制台日志 + 崩溃转储清单 + 报告信息（发作者/群友用）"""
+    out_dir = state.BASE_DIR / "exports"
+    try:
+        out_dir.mkdir(exist_ok=True)
+    except Exception as e:
+        return {"ok": False, "error": f"无法创建导出目录: {e}"}
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_path = out_dir / f"crash_report_{ts}.zip"
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+            latest = _latest_log_file(CRASH_ROOT / "console_logs") if CRASH_ROOT.is_dir() else None
+            if latest:
+                p = CRASH_ROOT / "console_logs" / latest["name"]
+                try:
+                    z.write(p, "console_logs/" + latest["name"])
+                except Exception:
+                    pass
+            dump_count = 0
+            dumps = CRASH_ROOT / "crash_dumps"
+            if dumps.is_dir():
+                for f in sorted(dumps.iterdir()):
+                    if f.is_file():
+                        try:
+                            z.write(f, "crash_dumps/" + f.name)
+                            dump_count += 1
+                        except Exception:
+                            pass
+            info = {
+                "导出时间": datetime.now().isoformat(timespec="seconds"),
+                "版本": "Alpha 测试版",
+                "游戏目录": str(state.GAME_DIR),
+                "最新控制台日志": latest["name"] if latest else None,
+                "崩溃转储文件数": dump_count,
+            }
+            z.writestr("report_info.json", json.dumps(info, ensure_ascii=False, indent=2))
+    except Exception as e:
+        return {"ok": False, "error": f"导出失败: {e}"}
+    return {"ok": True, "path": str(zip_path), "name": zip_path.name}

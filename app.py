@@ -1060,9 +1060,24 @@ if __name__ == "__main__":
         import webview
 
         def load_window_state():
-            return load_config().get("window", {})
+            ws = load_config().get("window", {}) or {}
+            # 过滤非法窗口状态：最小化/隐藏时 Windows 返回 -32000 坐标和极小尺寸，
+            # 直接用于下次启动会把窗口建到屏幕外（任务栏有图标但看不到窗口）
+            try:
+                if (ws.get("x", 0) < -1000 or ws.get("y", 0) < -1000
+                        or ws.get("width", 0) < 200 or ws.get("height", 0) < 200):
+                    return {}
+            except Exception:
+                return {}
+            return ws
 
         def save_window_state(x, y, w, h):
+            # 最小化/隐藏时坐标 -32000 或尺寸异常 → 不保存（下次用默认居中）
+            try:
+                if x < -1000 or y < -1000 or w < 200 or h < 200:
+                    return
+            except Exception:
+                return
             cfg = load_config()
             cfg["window"] = {"x": x, "y": y, "width": w, "height": h}
             try:

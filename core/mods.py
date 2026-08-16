@@ -31,7 +31,7 @@ def save_notes(notes: dict):
         pass
 
 
-_DISPLAY_CACHE = {}  # mod名 -> (localization mtime, 显示名)
+_DISPLAY_CACHE = {}  # mod名 -> (localization mtime, 显示名, 描述)
 
 
 def clean_display_name(s: str) -> str:
@@ -42,47 +42,66 @@ def clean_display_name(s: str) -> str:
     return s.strip()
 
 
-def read_display_name(d: Path) -> str:
-    """从 mod 的 localization 文件读取显示名（优先 zh-cn，其次 en）；无则返回空串"""
+class _LocInfo:
+    __slots__ = ('name', 'desc')
+    def __init__(self, name='', desc=''):
+        self.name = name
+        self.desc = desc
+
+
+def _read_locale(d: Path) -> _LocInfo:
+    """读 localization 文件，提取显示名 + 描述（均优先 zh-cn，其次 en）；带缓存"""
     try:
         locs = [f for f in d.rglob("*localization*.lua") if f.is_file()]
     except Exception:
         locs = []
     if not locs:
-        return ""
+        return _LocInfo()
     try:
         mt = max(f.stat().st_mtime for f in locs)
     except Exception:
         mt = 0
     hit = _DISPLAY_CACHE.get(d.name)
     if hit and hit[0] == mt:
-        return hit[1]
-    name = ""
+        return _LocInfo(hit[1], hit[2])
+    info = _LocInfo()
     for loc in locs:
         try:
-            if loc.stat().st_size > 256 * 1024:
+            if loc.stat().st_size > 512 * 1024:
                 continue
             text = loc.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
-        for key in ("mod_name", "display_name"):
+        for key, slot in (("mod_name", 'name'), ("display_name", 'name'), ("mod_description", 'desc')):
+            if getattr(info, slot):
+                continue
             m = re.search(key + r"\s*=\s*\{", text)
             if not m:
                 continue
             seg = text[m.end():m.end() + 3000]
             mz = re.search(r'\["zh-cn"\]\s*=\s*"([^"]+)"', seg)
             if mz:
-                name = mz.group(1).strip()
-                break
+                setattr(info, slot, mz.group(1).strip())
+                continue
             me = re.search(r'\ben\s*=\s*"([^"]+)"', seg)
             if me:
-                name = me.group(1).strip()
-                break
-        if name:
+                setattr(info, slot, me.group(1).strip())
+        if info.name and info.desc:
             break
-    name = clean_display_name(name)
-    _DISPLAY_CACHE[d.name] = (mt, name)
-    return name
+    info.name = clean_display_name(info.name)
+    info.desc = clean_display_name(info.desc)
+    _DISPLAY_CACHE[d.name] = (mt, info.name, info.desc)
+    return info
+
+
+def read_display_name(d: Path) -> str:
+    """从 mod 的 localization 文件读取显示名（优先 zh-cn，其次 en）；无则返回空串"""
+    return _read_locale(d).name
+
+
+def read_mod_description(d: Path) -> str:
+    """从 mod 的 localization 文件读取描述（优先 zh-cn，其次 en）；无则返回空串"""
+    return _read_locale(d).desc
 
 
 def parse_mod_deps(mod_dir: Path) -> list:
@@ -151,6 +170,7 @@ def scan_mods() -> list:
             result.append({
                 "name": name,
                 "display_name": read_display_name(d),
+                "description": read_mod_description(d),
                 "note": load_notes().get(name, ""),
                 "version": version,
                 "enabled": name in enabled_set,

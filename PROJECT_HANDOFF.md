@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-16 10:40（架构拆分收官 + core 包 + alpha 测试构建）
+> 最后更新：2026-08-16 16:05（日志分析/横幅控制/悬停描述等实验功能 + 文档整理）
 
 ---
 
@@ -69,6 +69,23 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 - 游戏目录「🔍 自动识别」（detect_game_dir 扫 Steam 库）+ 保存即时生效（apply_game_dir 热更新全局变量，无需重启）
 - 搜索框一键清空按钮、showModal 支持 hideActions（崩溃弹窗只用 extra 按钮）、模拟崩溃按钮（测试用）
 
+**日志分析（实验模式，侧边栏动态标签）**：
+- 触发：关于页「🔬 实验：日志预览」/ 崩溃弹窗「查看控制台日志」/ 拖拽 .log 文件进窗口（全局拖放，游戏运行中也允许）
+- 多标签（最新日志常驻 + 导入旧日志新标签，✕ 独立关闭，全关自动隐藏标签回 mods）
+- 三分类过滤（错误/警告/通常按钮互斥）+ 关键词搜索；行色：错误红/警告黄
+- 右键菜单：复制选中文本/复制此行/复制选中行；多选模式（点击/拖动批量选、实时预览、反色高亮、提示条）
+- 崩溃报告导出：console log + crash_dumps + report_info.json（exports/crash_report_*.zip）
+- API：/api/crash_logs/read（尾部+分类）、/api/crash_logs/analyze（导入分析）、/api/crash_logs/export
+
+**横幅显示控制**：
+- 按钮伪下拉 + 复选框单独控制三横幅（DMF/补丁/依赖）；一键收起/展开全部（#bannerToggleAll）
+- 收起→指示灯行「名称 ●」带 │ 分隔；自动收起正常（绿灯）横幅、自动展开异常（红/橙）横幅（bannerLastColor 状态变化检测）
+- 依赖横幅点击：flashDepMod() 逐个跳转闪光问题 mod（missing.mod / cycles / order_hints.ext）
+
+**mod 悬停详细描述**：
+- core/mods.py：_read_locale 解析 localization 的 mod_name + mod_description（优先 zh-cn/en，缓存复用）
+- 前端 .mod-tip 浮层：显示名/原名/版本/描述/备注/依赖/缺失警告（350ms 延迟，防溢出）
+
 **Mod 管理**：启停/排序/搜索/中文显示名/右键菜单/方案预设/**批量操作（右键多选模式）**
 
 **导入导出**：
@@ -128,6 +145,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 | `smoke_test.py [exe]` | **exe 冒烟测试**：起 exe → 从 app.log 解析端口 → 验证 GET / + /api/status → 自动关闭（会弹窗几秒） |
 | `build_alpha.py` | **alpha 构建一键**：检查版本显示（必须 Alpha 态）→ PyInstaller → 同步 release/DarktideModManager_alpha/（不打 zip；--skip-build/--check） |
 | `release_pack.py <ver>` | **正式发布打包**：同步 release/DarktideModManager_vX.Y.Z/ + 打 zip（前置：bump 版本 + 构建 exe） |
+| `build_release.py <ver>` | **正式发布一键**：恢复版本显示（Alpha→旧版）→ bump → CHANGELOG 定版 → 测试 → 构建 → 打包（--check 只查前置 / --skip-tests） |
 | `hanhua_dmf.py` | 重写 DMF localization（自译汉化） |
 | test_*.py（11 个） | 专项测试：batch/classify/deps/order_hint/export/preview/backup_preview/load_order/load_order_backup/load_order_preview/folder_import/guard/simulate/dmf_force |
 

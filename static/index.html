@@ -132,6 +132,28 @@
     display: flex; align-items: center; gap: 9px;
   }
   .sidebar button:hover { background: var(--panel2); color: var(--text); }
+  .tab-x {
+    margin-left: auto; padding: 0 3px; font-size: 11px; color: var(--dim); border-radius: 4px;
+    cursor: pointer; line-height: 1.4;
+  }
+  .tab-x:hover { color: #ff9b9b; background: rgba(255, 90, 90, .12); }
+  .log-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .log-sel-hint {
+    display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px;
+    font-size: 12.5px; color: var(--text); background: var(--active-bg); border: 1px solid var(--accent);
+  }
+  .log-sel-exit {
+    color: var(--accent); cursor: pointer; text-decoration: underline; font-weight: 600; margin-left: auto;
+  }
+  .log-sel-exit:hover { color: #ff9b9b; }
+  .log-tab {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 7px;
+    font-size: 12px; color: var(--dim); background: var(--panel2); border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .log-tab.active { color: var(--accent); border-color: var(--active-bg); background: var(--active-bg); font-weight: 600; }
+  .log-tab-title { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log-tab .tab-x { margin-left: 2px; flex-shrink: 0; }
   .sidebar button.active { background: var(--active-bg); color: var(--accent); font-weight: 600; }
   .sidebar .icon { font-size: 15px; width: 18px; text-align: center; }
   .sidebar .foot { margin-top: auto; font-size: 11px; color: #5a6275; padding: 8px 12px; text-align: center; }
@@ -213,6 +235,12 @@
   .mod-row.disabled { opacity: .5; cursor: default; }
   .mod-row.missing { border-color: rgba(255,180,84,.45); }
   .mod-row.sortable-ghost { opacity: .25; }
+  .mod-row.flash { animation: modflash .5s ease 3; }
+  @keyframes modflash {
+    0%, 100% { box-shadow: none; }
+    50% { box-shadow: 0 0 0 2px var(--accent), 0 0 14px rgba(77, 163, 255, .7); }
+  }
+  .dep-jump { cursor: pointer; }
   .mod-row.sortable-chosen { background: var(--chosen-bg); border-color: var(--accent); }
 
   .switch { position: relative; width: 38px; height: 21px; flex-shrink: 0; }
@@ -243,6 +271,48 @@
   #dmfBanner { padding: 0 14px; flex-shrink: 0; }
   #patchBanner { padding: 0 14px; flex-shrink: 0; }
   #dmfBanner, #patchBanner, #depBanner { padding: 0 14px; box-sizing: border-box; }
+  .banner-wrap { position: relative; }
+  .banner-select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 5px 10px; font-size: 12px; outline: none; cursor: pointer;
+    white-space: nowrap;
+  }
+  .banner-select:hover { border-color: var(--dim); }
+  .banner-drop { position: relative; }
+  .banner-menu {
+    position: absolute; top: calc(100% + 4px); left: 0; z-index: 60; min-width: 160px;
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  }
+  .banner-menu button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--text); padding: 7px 10px; border-radius: 5px; font-size: 12.5px; cursor: pointer;
+  }
+  .banner-menu button:hover { background: var(--active-bg); color: var(--accent); }
+  .banner-menu-item {
+    display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 5px;
+    font-size: 12.5px; color: var(--text); cursor: pointer; white-space: nowrap;
+  }
+  .banner-menu-item:hover { background: var(--active-bg); }
+  .banner-lights { flex: 1; display: flex; gap: 0; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .b-light-item {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 12px; color: var(--text); padding: 3px 8px; border-radius: 6px;
+  }
+  .b-light-item + .b-light-item::before {
+    content: '│'; margin-right: 8px; color: var(--border); font-weight: 300;
+  }
+  .b-light-item:hover { background: var(--panel2); }
+  .b-light {
+    width: 11px; height: 11px; border-radius: 50%;
+    border: 1px solid var(--border); display: inline-block;
+  }
+  .b-light.green { background: var(--green); }
+  .b-light.red { background: var(--red); }
+  .b-light.orange { background: var(--warn); }
+  .b-light.gray { background: var(--dim); opacity: .6; }
+  .b-light-text { color: var(--dim); }
+  .b-light-state { font-weight: 600; }
   .banner {
     display: flex; align-items: center; gap: 12px;
     border-radius: 9px; padding: 10px 14px; margin-bottom: 10px; font-size: 12.5px;
@@ -389,10 +459,28 @@
     padding: 20px; display: flex; flex-direction: column; gap: 14px;
   }
   .modal.wide { width: 520px; }
+  .modal.ultra { width: 920px; max-width: 92vw; }
   .modal-title { font-size: 14.5px; font-weight: 600; }
   .modal-text { font-size: 13px; color: var(--dim); line-height: 1.6; }
   .modal-lines { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; padding: 2px 2px; }
   .modal-line { font-size: 12.5px; line-height: 1.5; padding: 3px 8px; border-radius: 5px; background: var(--panel2); color: var(--text); }
+  .modal-html { max-height: 70vh; overflow-y: auto; }
+  .log-head { font-size: 11.5px; color: var(--dim); margin-bottom: 6px; word-break: break-all; }
+  .log-view { font-family: Consolas, monospace; font-size: 11.5px; line-height: 1.45; user-select: text; }
+  .log-line { white-space: pre-wrap; word-break: break-all; padding: 1px 6px; color: var(--text); }
+  .log-line:hover { filter: brightness(1.18); }
+  .log-line.selected { background: var(--accent) !important; color: #fff !important; border-radius: 3px; }
+  .log-line.selected:hover { filter: none; }
+  .mod-tip {
+    position: fixed; z-index: 1000; max-width: 340px; padding: 10px 12px;
+    background: var(--panel2); border: 1px solid var(--accent); border-radius: 8px;
+    font-size: 12px; line-height: 1.55; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .5); pointer-events: none;
+  }
+  .mod-tip .tip-desc { color: var(--dim); }
+  .mod-tip .tip-err { color: #ff8a8a; }
+  .log-line.err { color: #ff8a8a; background: rgba(255, 90, 90, .08); }
+  .log-line.warn { color: #ffd27a; background: rgba(255, 200, 80, .07); }
   .modal-line.ml-add { color: #7ee2a8; background: rgba(62,207,142,.08); }
   .modal-line.ml-del { color: #ff9b9b; background: rgba(255,107,107,.08); }
   .modal-line.ml-upd { color: #ffc46b; background: rgba(255,180,84,.08); }
@@ -472,7 +560,8 @@
       <button data-view="profiles"><span class="icon">❖</span>预设</button>
       <button data-view="backups"><span class="icon">↺</span>备份</button>
       <button data-view="about"><span class="icon">i</span>关于</button>
-      <div class="foot"><div class="foot-ver">DMM v0.3.1</div><div class="foot-name">暗潮 MOD 管理器</div></div>
+      <button data-view="log" id="btnNavLog" title="实验功能" style="display:none"><span class="icon">🔬</span>日志预览<span class="tab-x" id="btnNavLogClose" title="关闭日志预览">✕</span></button>
+      <div class="foot"><div class="foot-ver">DMM v0.4.0</div><div class="foot-name">暗潮 MOD 管理器</div></div>
     </nav>
 
     <main class="content">
@@ -496,9 +585,26 @@
           <input type="file" id="txtInput" accept=".txt" multiple style="display:none">
           <input type="file" id="dirInputPick" webkitdirectory multiple style="display:none">
         </div>
-        <div id="dmfBanner"></div>
-        <div id="patchBanner"></div>
-        <div id="depBanner"></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:0 14px 8px;flex-wrap:wrap">
+          <div class="banner-drop">
+            <button class="banner-select" id="bannerSelectBtn" title="横幅显示控制">横幅：3/3 ▾</button>
+            <div class="banner-menu" id="bannerMenu" style="display:none">
+              <label class="banner-menu-item"><input type="checkbox" id="chkDmf" checked> DMF 框架</label>
+              <label class="banner-menu-item"><input type="checkbox" id="chkPatch" checked> 补丁状态</label>
+              <label class="banner-menu-item"><input type="checkbox" id="chkDep" checked> 依赖检查</label>
+              <label class="banner-menu-item" style="border-top:1px solid var(--border);margin-top:2px;padding-top:8px"><input type="checkbox" id="chkAuto" checked> 自动收起正常横幅</label>
+            </div>
+          </div>
+          <button class="banner-select" id="bannerToggleAll" title="一键收起/展开全部横幅">⏹ 收起全部</button>
+          <div class="banner-lights" id="bannerLights" style="display:none">
+            <span class="b-light-item" id="lightItemDmf"><span class="b-light-text">DMF组件</span><span class="b-light gray" id="lightDmf"></span></span>
+            <span class="b-light-item" id="lightItemPatch"><span class="b-light-text">补丁状态</span><span class="b-light gray" id="lightPatch"></span></span>
+            <span class="b-light-item" id="lightItemDep"><span class="b-light-text">依赖检查</span><span class="b-light gray" id="lightDep"></span></span>
+          </div>
+        </div>
+        <div class="banner-wrap" id="dmfWrap"><div id="dmfBanner"></div></div>
+        <div class="banner-wrap" id="patchWrap"><div id="patchBanner"></div></div>
+        <div class="banner-wrap" id="depWrap"><div id="depBanner"></div></div>
         <div id="editLockHint"></div>
         <div id="batchBar" class="batch-bar" style="display:none">
           <span class="b-text">已选 <b id="batchCount">0</b> 个</span>
@@ -614,6 +720,29 @@
           </div>
         </div>
       </section>
+      <!-- 日志预览视图（实验模式） -->
+      <section class="view" id="view-log">
+        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;height:100%">
+          <div class="log-tabs" id="logTabs"></div>
+          <div class="log-sel-hint" id="logSelHint" style="display:none">☑ 多选模式：点击或<b>拖动</b>选择日志行，右键菜单复制选中行 · <span class="log-sel-exit" id="logSelExit">退出多选</span></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <h3 style="margin:0;font-size:15px">🔬 日志分析（实验模式）</h3>
+            <span class="dim" id="logInfo" style="font-size:12px;flex:1;min-width:160px"></span>
+            <input type="text" id="logFilter" placeholder="过滤关键词…" style="flex:1;min-width:120px;max-width:220px;font-size:12.5px">
+            <div style="display:flex;gap:4px;flex-shrink:0" id="logFilterBtns">
+              <button class="chip log-fbtn" data-level="err" title="只看错误行">错误</button>
+              <button class="chip log-fbtn" data-level="warn" title="只看警告行">警告</button>
+              <button class="chip log-fbtn" data-level="ok" title="只看通常行">通常</button>
+            </div>
+            <button class="ghost" id="btnLogRefresh" style="flex-shrink:0">🔄 刷新</button>
+            <button class="ghost" id="btnLogImport" style="flex-shrink:0">📂 导入旧日志</button>
+            <button class="ghost" id="btnLogExport" style="flex-shrink:0">📦 导出报告</button>
+            <button class="ghost" id="btnLogClose" style="flex-shrink:0">✕ 关闭</button>
+            <input type="file" id="logFileInput" accept=".log,.txt" style="display:none">
+          </div>
+          <div class="log-view" id="logView" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--panel2)"></div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -636,6 +765,14 @@
     <button id="ctxBatch" style="display:none">☑ 多选模式</button>
     <button id="ctxDelete" class="ctx-danger" style="display:none">🗑 删除 mod 文件</button>
     <button id="ctxRemove" class="ctx-danger" style="display:none">🗑 从清单移除（清理残留）</button>
+  </div>
+
+  <!-- 日志右键菜单 -->
+  <div class="ctx-menu" id="logCtxMenu" style="display:none">
+    <button id="logCtxCopyText" style="display:none">📋 复制选中文本</button>
+    <button id="logCtxCopyLine">📋 复制此行</button>
+    <button id="logCtxCopySel" style="display:none">📋 复制选中行</button>
+    <button id="logCtxSelMode">☑ 多选模式</button>
   </div>
 
   <!-- 模态对话框（替代浏览器 prompt/confirm） -->
@@ -826,7 +963,7 @@
 
     /* ---------- 应用内模态框（替代 prompt/confirm，避免浏览器风格弹窗） ---------- */
     let modalResolve = null;
-    function showModal({ title, text, textAfter, input, placeholder, okText, extra, value, wide, choices, choicesRequired, choicesInstant, lines, hideActions }) {
+    function showModal({ title, text, textAfter, input, placeholder, okText, extra, value, wide, ultra, choices, choicesRequired, choicesInstant, lines, html, hideActions }) {
       return new Promise(resolve => {
         modalResolve = resolve;
         // 清理上一次残留的动态按钮（用类名清全部，避免重复 id 只删第一个导致按钮增生）
@@ -835,10 +972,22 @@
         // hideActions：只隐藏底部标准按钮（取消/确定），extra 按钮保留可见
         $('modalCancel').style.display = hideActions ? 'none' : '';
         $('modalOk').style.display = hideActions ? 'none' : '';
-        $('modal').classList.toggle('wide', !!wide);
+        // 宽度类加在内部 .modal 内容框上（$('modal') 是 overlay，.modal.wide/.ultra 选择器匹配内容框）
+        const modalBox = $('modal').querySelector('.modal');
+        if (modalBox) {
+          modalBox.classList.toggle('wide', !!wide);
+          modalBox.classList.toggle('ultra', !!ultra);
+        }
         $('modalTitle').textContent = title;
         const body = $('modalBody');
         body.innerHTML = '';
+        if (html) {
+          // 原始 HTML 块（如日志预览等高亮内容）
+          const div = document.createElement('div');
+          div.className = 'modal-html';
+          div.innerHTML = html;
+          body.appendChild(div);
+        }
         if (text && !textAfter) {
           const p = document.createElement('div');
           p.className = 'modal-text'; p.textContent = text;
@@ -955,10 +1104,266 @@
         if (btn.dataset.view === 'profiles') loadProfiles();
         if (btn.dataset.view === 'backups') loadBackups();
         if (btn.dataset.view === 'about') loadAbout();
+        if (btn.dataset.view === 'log') loadLogPreview();
       });
     });
 
-    /* ---------- Mod 列表 ---------- */
+    /* ---------- 日志预览（实验模式）：多标签 + 过滤 ---------- */
+    const logTabs = [];       // {id, title, data}
+    let logActiveId = null;
+    let logSeq = 0;
+    function escHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function renderLogTabs() {
+      const bar = $('logTabs');
+      if (!bar) return;
+      bar.innerHTML = logTabs.map(t =>
+        `<span class="log-tab${t.id === logActiveId ? ' active' : ''}" data-tab="${t.id}"><span class="log-tab-title">${escHtml(t.title)}</span><span class="tab-x" data-close="${t.id}">✕</span></span>`
+      ).join('') || '<span class="dim" style="font-size:12px;padding:4px 2px">（无日志，点「导入旧日志」或「刷新」）</span>';
+      bar.querySelectorAll('.log-tab').forEach(el => {
+        el.addEventListener('click', (e) => {
+          const closeId = e.target.dataset.close;
+          if (closeId) { closeLogTabById(Number(closeId)); return; }
+          activateLogTab(Number(el.dataset.tab));
+        });
+      });
+    }
+    function activateLogTab(id) {
+      logActiveId = id;
+      renderLogTabs();
+      applyLogFilter();
+    }
+    function closeLogTabById(id) {
+      const i = logTabs.findIndex(t => t.id === id);
+      if (i === -1) return;
+      logTabs.splice(i, 1);
+      if (logActiveId === id) logActiveId = logTabs.length ? logTabs[logTabs.length - 1].id : null;
+      if (!logTabs.length) { closeLogTab(); return; }  // 全部关闭 → 隐藏标签回到 mods
+      renderLogTabs();
+      applyLogFilter();
+    }
+    function ensureLogTab(title, data) {
+      // 同标题复用（如「最新日志」），否则新建标签
+      let t = logTabs.find(x => x.title === title);
+      if (t) { t.data = data; activateLogTab(t.id); return t; }
+      t = { id: ++logSeq, title, data };
+      logTabs.push(t);
+      activateLogTab(t.id);
+      return t;
+    }
+    let logFilterLevel = null;  // 分类过滤：null=全部 / err / warn / ok
+    let logRows = [];            // 当前过滤后的行（供右键复制）
+    let logSelMode = false;      // 日志多选模式
+    const logSelSet = new Set(); // 选中行索引（对应 logRows）
+    let lastLogLineIdx = -1;     // 右键目标行
+    function setLogFilterLevel(level) {
+      // 再点同一按钮 = 取消（全部显示）
+      logFilterLevel = (logFilterLevel === level) ? null : level;
+      document.querySelectorAll('.log-fbtn').forEach(b => b.classList.toggle('active', b.dataset.level === logFilterLevel));
+      applyLogFilter();
+    }
+    document.querySelectorAll('.log-fbtn').forEach(b => b.addEventListener('click', () => setLogFilterLevel(b.dataset.level)));
+    function applyLogFilter() {
+      const info = $('logInfo'), view = $('logView');
+      if (!view) return;
+      const t = logTabs.find(x => x.id === logActiveId);
+      if (!t || !t.data) { view.innerHTML = ''; info.textContent = ''; return; }
+      const kw = ($('logFilter').value || '').trim().toLowerCase();
+      let rows = t.data.lines;
+      if (logFilterLevel) rows = rows.filter(l => (l.level || (l.err ? 'err' : l.warn ? 'warn' : 'ok')) === logFilterLevel);
+      if (kw) rows = rows.filter(l => l.text.toLowerCase().includes(kw));
+      const lvName = logFilterLevel ? ({ err: '错误', warn: '警告', ok: '通常' })[logFilterLevel] : '全部';
+      info.textContent = `${t.title} · 显示 ${rows.length}/${t.data.total} 行（${lvName}）· 红=错误 黄=警告`;
+      logRows = rows;
+      logSelSet.clear();
+      view.innerHTML = rows.map((l, i) => {
+        const lv = l.level || (l.err ? 'err' : l.warn ? 'warn' : 'ok');
+        const cls = lv === 'err' ? ' err' : lv === 'warn' ? ' warn' : '';
+        return `<div class="log-line${cls}" data-i="${i}">${escHtml(l.text) || '&nbsp;'}</div>`;
+      }).join('') || '<div class="dim" style="padding:8px">无匹配行</div>';
+      view.scrollTop = view.scrollHeight;
+    }
+    async function loadLogPreview() {
+      try {
+        const r = await api('/api/crash_logs/read?tail=400');
+        if (!r.ok) { toast(r.error || '读取失败'); return; }
+        ensureLogTab('最新日志', { total: r.total, lines: r.lines });
+      } catch (e) { toast('加载失败: ' + e.message); }
+    }
+    function showLogTab() {
+      // 需要时才出现：显示侧边栏标签并切到日志视图
+      const nav = $('btnNavLog');
+      if (nav) nav.style.display = '';
+      document.querySelectorAll('.sidebar button[data-view]').forEach(b => b.classList.remove('active'));
+      if (nav) nav.classList.add('active');
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      const target = $('view-log');
+      if (target) target.classList.add('active');
+      if (!logTabs.length) loadLogPreview();
+      else applyLogFilter();
+    }
+    function closeLogTab() {
+      // 不需要时消失：隐藏侧边栏标签并回到 mod 管理
+      const nav = $('btnNavLog');
+      if (nav) nav.style.display = 'none';
+      logTabs.length = 0;
+      logActiveId = null;
+      document.querySelector('.sidebar button[data-view="mods"]')?.click();
+    }
+    $('btnLogRefresh')?.addEventListener('click', () => { if (logTabs.length) loadLogPreview(); });
+    $('btnLogExport')?.addEventListener('click', async () => {
+      try {
+        const ex = await api('/api/crash_logs/export', { method: 'POST' });
+        toast(ex.ok ? `已导出: ${ex.name}` : (ex.error || '导出失败'));
+      } catch (e) { toast('导出失败: ' + e.message); }
+    });
+    $('btnLogClose')?.addEventListener('click', closeLogTab);
+    $('btnNavLogClose')?.addEventListener('click', (e) => {
+      e.stopPropagation();  // 不触发导航
+      closeLogTab();
+    });
+    $('btnLogImport')?.addEventListener('click', () => $('logFileInput')?.click());
+    $('logFileInput')?.addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try {
+        const text = await f.text();
+        const r = await api('/api/crash_logs/analyze', { method: 'POST', body: JSON.stringify({ name: f.name, content: text }) });
+        if (!r.ok) { toast(r.error || '分析失败'); return; }
+        ensureLogTab(f.name, { total: r.total, lines: r.lines });
+      } catch (err) { toast('分析失败: ' + err.message); }
+      e.target.value = '';
+    });
+    $('logFilter')?.addEventListener('input', applyLogFilter);
+
+    /* 日志右键菜单：复制条目 / 多选复制 */
+    function showLogCtx(x, y) {
+      const m = $('logCtxMenu');
+      m.style.left = x + 'px';
+      m.style.top = y + 'px';
+      m.style.display = 'block';
+    }
+    function hideLogCtx() {
+      const m = $('logCtxMenu');
+      if (m) m.style.display = 'none';
+    }
+    function refreshLogCtxButtons() {
+      // 拖选的文本（非多选模式）可复制
+      let hasSelText = false;
+      try { hasSelText = !!window.getSelection() && window.getSelection().toString().length > 0; } catch (e) {}
+      $('logCtxCopyText').style.display = (!logSelMode && hasSelText) ? 'block' : 'none';
+      // 多选模式：不显示单行复制；非多选：不显示批量复制
+      $('logCtxCopyLine').style.display = logSelMode ? 'none' : 'block';
+      $('logCtxCopySel').style.display = (logSelMode && logSelSet.size) ? 'block' : 'none';
+      $('logCtxSelMode').textContent = logSelMode ? '✕ 退出多选' : '☑ 多选模式';
+    }
+    $('logView')?.addEventListener('contextmenu', e => {
+      const line = e.target.closest('.log-line');
+      if (!line) return;  // 空白处保留默认菜单
+      e.preventDefault();
+      lastLogLineIdx = Number(line.dataset.i);
+      refreshLogCtxButtons();
+      showLogCtx(e.clientX, e.clientY);
+    });
+    let logMouseDownPos = null;
+    let dragSelStart = null;   // 拖动多选起点行（多选模式）
+    $('logView')?.addEventListener('mousedown', e => {
+      logMouseDownPos = { x: e.clientX, y: e.clientY };
+      if (logSelMode) {
+        const line = e.target.closest('.log-line');
+        if (line) dragSelStart = Number(line.dataset.i);
+      }
+    });
+    // 拖动实时预览：拖到哪选到哪（document 级，鼠标可拖出日志区）
+    document.addEventListener('mousemove', e => {
+      if (!logSelMode || dragSelStart === null) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const line = el && el.closest ? el.closest('.log-line') : null;
+      if (!line) return;
+      const endIdx = Number(line.dataset.i);
+      const lo = Math.min(dragSelStart, endIdx), hi = Math.max(dragSelStart, endIdx);
+      // 同步选中集合（供复制按钮判断）
+      logSelSet.clear();
+      for (let i = lo; i <= hi; i++) logSelSet.add(i);
+      document.querySelectorAll('#logView .log-line').forEach(el2 => {
+        const idx = Number(el2.dataset.i);
+        el2.classList.toggle('selected', idx >= lo && idx <= hi);
+      });
+    });
+    $('logView')?.addEventListener('mouseup', e => {
+      if (!logSelMode || dragSelStart === null) return;
+      dragSelStart = null;  // 实时预览已选中，这里只收尾
+      refreshLogCtxButtons();
+    });
+    $('logView')?.addEventListener('click', e => {
+      const line = e.target.closest('.log-line');
+      if (!line) return;
+      // 拖动选择文本（鼠标移过一段距离）不算点击
+      if (logMouseDownPos &&
+          (Math.abs(e.clientX - logMouseDownPos.x) > 5 || Math.abs(e.clientY - logMouseDownPos.y) > 5)) return;
+      const i = Number(line.dataset.i);
+      if (logSelMode) {
+        // 多选：toggle 单行
+        if (logSelSet.has(i)) { logSelSet.delete(i); line.classList.remove('selected'); }
+        else { logSelSet.add(i); line.classList.add('selected'); }
+        refreshLogCtxButtons();
+      } else {
+        // 非多选：单击单选高亮（右键可复制此行）
+        logSelSet.clear();
+        logSelSet.add(i);
+        document.querySelectorAll('#logView .log-line').forEach(el => {
+          el.classList.toggle('selected', Number(el.dataset.i) === i);
+        });
+      }
+    });
+    $('logCtxCopyText')?.addEventListener('click', () => {
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.toString()) copyText(sel.toString());
+      } catch (e) {}
+      hideLogCtx();
+    });
+    $('logCtxCopyLine')?.addEventListener('click', () => {
+      const row = logRows[lastLogLineIdx];
+      if (row) copyText(row.text);
+      hideLogCtx();
+    });
+    $('logCtxCopySel')?.addEventListener('click', () => {
+      const texts = [...logSelSet].sort((a, b) => a - b).map(i => logRows[i] && logRows[i].text).filter(Boolean);
+      if (texts.length) copyText(texts.join('\n'));
+      hideLogCtx();
+    });
+    $('logCtxSelMode')?.addEventListener('click', () => {
+      logSelMode = !logSelMode;
+      logSelSet.clear();
+      // 多选模式禁用文本拖选（避免误选干扰多选）；退出恢复
+      const v = $('logView');
+      if (v) v.style.userSelect = logSelMode ? 'none' : 'text';
+      // 进入多选模式显示提示条，退出隐藏
+      const hint = $('logSelHint');
+      if (hint) hint.style.display = logSelMode ? 'flex' : 'none';
+      document.querySelectorAll('#logView .log-line.selected').forEach(el => el.classList.remove('selected'));
+      refreshLogCtxButtons();
+      toast(logSelMode ? '已进入多选模式：点击或拖动选择日志行' : '已退出多选');
+      hideLogCtx();
+    });
+    $('logSelExit')?.addEventListener('click', () => {
+      logSelMode = false;
+      logSelSet.clear();
+      const v = $('logView');
+      if (v) v.style.userSelect = 'text';
+      const hint = $('logSelHint');
+      if (hint) hint.style.display = 'none';
+      document.querySelectorAll('#logView .log-line.selected').forEach(el => el.classList.remove('selected'));
+      refreshLogCtxButtons();
+      toast('已退出多选');
+    });
+    document.addEventListener('click', (e) => {
+      if (!$('logCtxMenu') || !$('logCtxMenu').contains(e.target)) hideLogCtx();
+    });
+
+/* ---------- Mod 列表 ---------- */
     function visibleMods() {
       let list = mods;
       if (filter === 'on') list = list.filter(m => m.enabled);
@@ -1058,7 +1463,8 @@
     function renderDepBanner() {
       const el = $('depBanner');
       if (!el) return;
-      if (depInfo.bad <= 0) { el.innerHTML = ''; return; }
+      if (depInfo.bad <= 0) { el.innerHTML = ''; setBannerLight('dep', 'green'); return; }
+      setBannerLight('dep', 'red');
       const missN = depInfo.missing.length;
       const cycN = depInfo.cycles.length;
       const ordN = (depInfo.order_hints || []).length;
@@ -1066,8 +1472,45 @@
       if (missN) parts.push(`${missN} 个 mod 缺依赖`);
       if (cycN) parts.push(`${cycN} 组循环依赖`);
       if (ordN) parts.push(`${ordN} 处加载顺序建议`);
-      el.innerHTML = `<div class="banner warn"><span class="b-text">⚠ 依赖检查：${parts.join('，')}——建议在导入新整合包前处理。</span></div>`;
+      el.innerHTML = `<div class="banner warn dep-jump"><span class="b-text">⚠ 依赖检查：${parts.join('，')}——<b>点击横幅逐个跳转</b>到问题 mod。</span></div>`;
     }
+    /* 点击依赖横幅：从上到下轮询跳转并闪光问题 mod */
+    let depFlashIdx = -1;
+    function depProblemMods() {
+      const names = new Set();
+      (depInfo.missing || []).forEach(x => x.mod && names.add(x.mod));
+      (depInfo.cycles || []).forEach(c => (c || []).forEach(n => names.add(n)));
+      (depInfo.order_hints || []).forEach(h => h.ext && names.add(h.ext));
+      // 按 mod 列表顺序（从上到下）
+      return mods.filter(m => names.has(m.name)).map(m => m.name);
+    }
+    function flashDepMod() {
+      const list = depProblemMods();
+      if (!list.length) return;
+      depFlashIdx = (depFlashIdx + 1) % list.length;
+      const name = list[depFlashIdx];
+      // 重置过滤/搜索，确保问题行可见
+      if (filter !== 'all' || keyword) {
+        filter = 'all';
+        keyword = '';
+        const inp = $('search');
+        if (inp) inp.value = '';
+        const clearBtn = $('btnClearSearch');
+        if (clearBtn) clearBtn.style.display = 'none';
+        document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.filter === 'all'));
+        render();
+      }
+      document.querySelector('.sidebar button[data-view="mods"]')?.click();
+      const row = [...document.querySelectorAll('.mod-row')].find(r => r.dataset.name === name);
+      if (row) {
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        row.classList.add('flash');
+        setTimeout(() => row.classList.remove('flash'), 2000);
+      }
+    }
+    document.addEventListener('click', e => {
+      if (e.target.closest('#depBanner')) flashDepMod();
+    });
     function render() {
       const list = visibleMods();
       const enabled = list.filter(m => m.enabled);
@@ -1102,7 +1545,8 @@
         const name = document.createElement('div'); name.className = 'mod-name';
         // 显示名优先：localization 里的中文名（如「自动拾取」），英文文件夹名作副标题
         const shown = (m.display_name && m.display_name !== m.name) ? m.display_name : m.name;
-        name.textContent = shown; name.title = m.name;
+        name.textContent = shown;
+        // 悬停详情用自定义浮层（.mod-tip），不用原生 title（白框）
         if (m.note) {
           const nSpan = document.createElement('span'); nSpan.className = 'mod-note';
           nSpan.textContent = ' (' + m.note + ')';
@@ -1140,23 +1584,109 @@
       });
     });
 
+    /* ---------- 横幅显示控制（按钮伪下拉 + 复选框 + 指示灯） ---------- */
+    const BANNER_NAMES = { dmf: 'DMF 组件', patch: '补丁状态', dep: '依赖检查' };
+    const BANNER_COLORS = { green: '绿灯', red: '红灯', orange: '橙灯', gray: '灰灯' };
+    const bannerVisible = { dmf: true, patch: true, dep: true };
+    let bannerAutoCollapse = true;         // 正常状态自动收起
+    const bannerLastColor = { dmf: null, patch: null, dep: null };  // 上次灯色（状态变化检测）
+    function setBannerLight(key, color) {
+      const el = $('light' + key[0].toUpperCase() + key.slice(1));
+      if (!el) return;
+      el.className = 'b-light ' + (color || 'gray');  // 颜色由圆点表达，不加文字
+      if (bannerAutoCollapse) {
+        if (color === 'green' && bannerVisible[key] && bannerLastColor[key] !== 'green') {
+          // 状态刚变正常 → 自动收起为指示灯
+          bannerVisible[key] = false;
+          const chk = $('chk' + key[0].toUpperCase() + key.slice(1));
+          if (chk) chk.checked = false;
+          applyBannerMode();
+        } else if (color !== 'green' && !bannerVisible[key] && bannerLastColor[key] === 'green') {
+          // 状态刚变异常（红/橙/灰）→ 自动展开提示用户
+          bannerVisible[key] = true;
+          const chk = $('chk' + key[0].toUpperCase() + key.slice(1));
+          if (chk) chk.checked = true;
+          applyBannerMode();
+        }
+      }
+      bannerLastColor[key] = color;
+    }
+    function applyBannerMode() {
+      const show = k => !!bannerVisible[k];
+      const wrap = { dmf: $('dmfWrap'), patch: $('patchWrap'), dep: $('depWrap') };
+      wrap.dmf.style.display = show('dmf') ? '' : 'none';
+      wrap.patch.style.display = show('patch') ? '' : 'none';
+      wrap.dep.style.display = show('dep') ? '' : 'none';
+      const anyHidden = !show('dmf') || !show('patch') || !show('dep');
+      $('bannerLights').style.display = anyHidden ? 'flex' : 'none';
+      // 只显示被收起横幅对应的灯（整行）
+      $('lightItemDmf').style.display = show('dmf') ? 'none' : '';
+      $('lightItemPatch').style.display = show('patch') ? 'none' : '';
+      $('lightItemDep').style.display = show('dep') ? 'none' : '';
+      // 按钮显示当前可见数
+      const n = ['dmf', 'patch', 'dep'].filter(show).length;
+      const btn = $('bannerSelectBtn');
+      if (btn) btn.textContent = `横幅：${n}/3 ▾`;
+    }
+    $('bannerSelectBtn')?.addEventListener('click', e => {
+      e.stopPropagation();
+      const menu = $('bannerMenu');
+      if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+    });
+    $('bannerToggleAll')?.addEventListener('click', () => {
+      // 一键收起/展开：当前全部可见 → 全部收起；否则全部展开
+      const allVisible = ['dmf', 'patch', 'dep'].every(k => bannerVisible[k]);
+      ['dmf', 'patch', 'dep'].forEach(k => {
+        bannerVisible[k] = !allVisible;
+        const chk = $('chk' + k[0].toUpperCase() + k.slice(1));
+        if (chk) chk.checked = !allVisible;
+      });
+      const btn = $('bannerToggleAll');
+      if (btn) btn.textContent = allVisible ? '▶ 展开全部' : '⏹ 收起全部';
+      applyBannerMode();
+    });
+    $('chkAuto')?.addEventListener('change', e => { bannerAutoCollapse = e.target.checked; });
+    ['dmf', 'patch', 'dep'].forEach(k => {
+      $('chk' + k[0].toUpperCase() + k.slice(1))?.addEventListener('change', e => {
+        bannerVisible[k] = e.target.checked;
+        applyBannerMode();
+      });
+    });
+    document.addEventListener('click', () => {
+      const menu = $('bannerMenu');
+      if (menu) menu.style.display = 'none';
+    });
+    ['dmf', 'patch', 'dep'].forEach(k => {
+      const cap = k[0].toUpperCase() + k.slice(1);
+      $('lightItem' + cap)?.addEventListener('click', () => {
+        // 点击整行 = 重新展开该横幅
+        bannerVisible[k] = true;
+        const chk = $('chk' + cap);
+        if (chk) chk.checked = true;
+        applyBannerMode();
+      });
+    });
+
     /* ---------- DMF 状态（未安装引导一键安装 / 已装提供重装入口） ---------- */
     let dmfInfo = null;
     async function renderDmfBanner() {
       const el = $('dmfBanner');
-      if (!dmfInfo) { el.innerHTML = ''; return; }
-      if (!dmfInfo.game_dir_valid) { el.innerHTML = ''; return; }  // 游戏目录都没设置，交给状态栏提示
+      if (!dmfInfo) { el.innerHTML = ''; setBannerLight('dmf', 'gray'); return; }
+      if (!dmfInfo.game_dir_valid) { el.innerHTML = ''; setBannerLight('dmf', 'gray'); return; }  // 游戏目录都没设置，交给状态栏提示
 
       let html;
       if (!dmfInfo.installed) {
+        setBannerLight('dmf', 'red');
         const n = dmfInfo.missing.length;
         html = `<div class="banner err"><span class="b-text">✗ 未检测到 DMF 框架${n ? `（缺 ${n} 个组件：${dmfInfo.missing.slice(0, 3).join('、')}${n > 3 ? ' 等' : ''}）` : ''}——没有它 mods 无法加载，点一下全部搞定。</span>` +
           `<button id="btnDmfInstall">⚡ 一键安装 DMF</button></div>`;
       } else if (dmfInfo.autopatch_off) {
+        setBannerLight('dmf', 'orange');
         html = `<div class="banner warn"><span class="b-text">⚠ 自动装载插件处于禁用状态：一键安装补丁后自动恢复，mods 不再被游戏重置。</span>` +
           `<button id="btnDmfInstall" class="neutral">恢复自动装载</button></div>`;
       } else {
         // 一切正常：提供低调的重装入口（覆盖更新，旧文件自动备份）
+        setBannerLight('dmf', 'green');
         html = `<div class="banner ok"><span class="b-text">✓ DMF 框架已就绪</span>` +
           `<button id="btnDmfOverwrite" class="neutral">🔄 重新安装框架</button></div>`;
       }
@@ -1200,13 +1730,15 @@
     let gameRunning = false;
     async function renderPatchBanner() {
       const el = $('patchBanner');
-      if (!patchInfo.tool_exists) { el.innerHTML = ''; return; }
+      if (!patchInfo.tool_exists) { el.innerHTML = ''; setBannerLight('patch', 'gray'); return; }
       const runHint = gameRunning ? ' · 游戏运行中' : '';
       if (patchInfo.patched) {
+        setBannerLight('patch', 'green');
         el.innerHTML =
           `<div class="banner ok"><span class="b-text">✓ PATCH 运行正常${runHint}</span>` +
           `<button id="btnPatchUninstall" class="danger">卸载补丁</button></div>`;
       } else {
+        setBannerLight('patch', 'orange');
         el.innerHTML =
           `<div class="banner warn"><span class="b-text">⚠ PATCH 未启用（游戏更新后会被重置）${runHint}</span>` +
           `<button id="btnPatchInstall">安装补丁</button></div>`;
@@ -1344,8 +1876,7 @@
           hideActions: true,
         });
         if (r === 'open') {
-          const o = await api('/api/crash_logs/open', { method: 'POST' });
-          toast(o.message || o.error || '已打开日志目录');
+          showLogTab();  // 打开日志预览页（实验模式）查看高亮报错
         }
       } finally { crashModalOpen = false; }
     }
@@ -1608,27 +2139,86 @@
       } catch (e) { toast('导入失败: ' + e.message); }
     }
     const listWrap = $('listWrap');
-    ['dragenter', 'dragover'].forEach(ev => listWrap.addEventListener(ev, e => {
+    /* 全局拖放：任意页面拖文件进入都能导入（log=日志分析，txt/压缩包=mod 导入） */
+    ['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => {
       e.preventDefault();
       if (gameRunning) return;  // 游戏运行中不显示拖放高亮
       listWrap.classList.add('dragover');
     }));
-    ['dragleave', 'drop'].forEach(ev => listWrap.addEventListener(ev, e => {
-      e.preventDefault(); listWrap.classList.remove('dragover');
+    ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => {
+      e.preventDefault();
+      listWrap.classList.remove('dragover');
     }));
-    listWrap.addEventListener('drop', e => {
-      if (gameRunning) { toast('游戏运行中，导入已锁定'); return; }
+    document.addEventListener('drop', e => {
       if (e.dataTransfer && e.dataTransfer.files.length) handleImportFiles(e.dataTransfer.files);
     });
     /* 统一导入入口：txt=清单，压缩包=mod/整合包自动识别 */
-    async function handleImportFiles(fileList) {
+        async function importLogFile(f) {
+      // 拖入 .log 日志文件 → 打开日志分析页并新建标签
+      try {
+        const text = await f.text();
+        const r = await api('/api/crash_logs/analyze', { method: 'POST', body: JSON.stringify({ name: f.name, content: text }) });
+        if (!r.ok) { toast(r.error || '分析失败'); return; }
+        showLogTab();
+        ensureLogTab(f.name, { total: r.total, lines: r.lines });
+        toast(`已导入日志: ${f.name}`);
+      } catch (e) { toast('日志分析失败: ' + e.message); }
+    }
+    function handleImportFiles(fileList) {
       const files = [...fileList];
       if (!files.length) return;
+      const logs = files.filter(f => /\.log$/i.test(f.name));
       const txts = files.filter(f => /\.txt$/i.test(f.name));
-      const archives = files.filter(f => !/\.txt$/i.test(f.name));
-      if (txts.length) for (const f of txts) await importLoadOrderFile(f);
-      if (archives.length) uploadModFiles(archives);
+      const archives = files.filter(f => !/\.(log|txt)$/i.test(f.name));
+      if (logs.length) for (const f of logs) importLogFile(f);  // 日志分析只读，游戏运行中也允许
+      if (txts.length || archives.length) {
+        if (gameRunning) { toast('游戏运行中，导入已锁定'); return; }
+        if (txts.length) for (const f of txts) importLoadOrderFile(f);
+        if (archives.length) uploadModFiles(archives);
+      }
     }
+
+    /* ---------- mod 悬停提示（详细描述） ---------- */
+    const modTip = document.createElement('div');
+    modTip.className = 'mod-tip';
+    modTip.style.display = 'none';
+    document.body.appendChild(modTip);
+    let modTipTimer = null;
+    function showModTip(m, x, y) {
+      const parts = [];
+      parts.push(`<b>${escHtml(m.display_name || m.name)}</b>` +
+        (m.name !== m.display_name ? ` <span class="dim">${escHtml(m.name)}</span>` : ''));
+      if (m.version) parts.push(`版本：${escHtml(m.version)}`);
+      if (m.description) parts.push(`<div class="tip-desc">${escHtml(m.description)}</div>`);
+      if (m.note) parts.push(`备注：${escHtml(m.note)}`);
+      if (m.dependencies && m.dependencies.length) parts.push(`依赖：${escHtml(m.dependencies.join(', '))}`);
+      if (m.missing) parts.push('<span class="tip-err">⚠ 文件夹缺失（残留）</span>');
+      modTip.innerHTML = parts.join('<br>');
+      modTip.style.display = 'block';
+      // 定位：鼠标右下方，防溢出屏幕
+      const rect = modTip.getBoundingClientRect();
+      let tx = x + 14, ty = y + 14;
+      if (tx + rect.width > window.innerWidth - 8) tx = x - rect.width - 14;
+      if (ty + rect.height > window.innerHeight - 8) ty = y - rect.height - 14;
+      modTip.style.left = tx + 'px';
+      modTip.style.top = ty + 'px';
+    }
+    listEl.addEventListener('mouseover', e => {
+      const row = e.target.closest('.mod-row');
+      if (!row) return;
+      const m = mods.find(x => x.name === row.dataset.name);
+      if (!m) return;
+      clearTimeout(modTipTimer);
+      modTipTimer = setTimeout(() => showModTip(m, e.clientX, e.clientY), 350);
+    });
+    listEl.addEventListener('mouseout', e => {
+      const row = e.target.closest('.mod-row');
+      if (!row) return;
+      const to = e.relatedTarget;
+      if (to && to.closest && to.closest('.mod-row') === row) return;  // 仍在行内
+      clearTimeout(modTipTimer);
+      modTip.style.display = 'none';
+    });
 
     /* ---------- 右键菜单（mod 行） ---------- */
     const ctxMenu = $('ctxMenu');
@@ -2002,7 +2592,8 @@
     async function loadAbout() {
       const st = await api('/api/status');
       const valid = st.game_dir_valid ? '✓ 已识别' : '✗ 未找到（请在下框设置）';
-      const crashHtml = '<button class="link-btn" id="btnOpenCrashLogs">📂 打开控制台日志文件夹</button>';
+      const crashHtml = '<button class="link-btn" id="btnOpenCrashLogs">📂 打开控制台日志文件夹</button>' +
+        ' <button class="link-btn" id="btnCrashLogPreview">🔬 实验：日志预览</button>';
       $('aboutPaths').innerHTML =
         `<span class="k">游戏目录</span><span class="v">${st.game_dir}（${valid}）</span>` +
         `<span class="k">mods 目录</span><span class="v">${st.mods_dir}</span>` +
@@ -2034,6 +2625,11 @@
           const r = await api('/api/crash_logs/open', { method: 'POST' });
           toast(r.message || r.error || (r.ok ? '已打开' : '打开失败'));
         } catch (err) { toast('打开失败: ' + err.message); }
+        return;
+      }
+      const preview = e.target.closest('#btnCrashLogPreview');
+      if (preview) {
+        showLogTab();
         return;
       }
       const simOn = e.target.closest('#btnSimOn');
