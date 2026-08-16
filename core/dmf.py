@@ -4,9 +4,9 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-import state
-import patch
-from imports import prune_backups
+from core import state
+from core import patch
+from core.imports import prune_backups
 
 # 内置 DMF 组件：关键文件清单（用于检测"是否装齐"；释放按 payload 子树全量拷贝）
 DMF_FILES = [

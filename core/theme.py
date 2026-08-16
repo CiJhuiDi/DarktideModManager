@@ -7,8 +7,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-import state
-from state import load_config
+from core import state
+from core.state import load_config
 
 router = APIRouter()
 

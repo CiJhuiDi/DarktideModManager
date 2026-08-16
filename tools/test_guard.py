@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
-import profiles
-import state
+from core import profiles
+from core import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
@@ -18,7 +18,7 @@ state.GAME_DIR = MOCK
 state.MODS_DIR = MOCK / 'mods'
 state.CONFIG_FILE = MOCK / 'config_test.json'
 state.BACKUP_DIR = MOCK / 'backups_test'
-import patch
+from core import patch
 app.is_game_running = lambda: True
 patch.is_game_running = lambda: True  # guard 在 patch 模块内调用  # 强制"游戏运行中"
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}

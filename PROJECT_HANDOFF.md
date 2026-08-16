@@ -18,10 +18,17 @@
 ## 二、核心文件结构
 
 ```
-app.py               # FastAPI 后端（路由 + 业务，~2450 行，阶段1已拆出 state.py）
-state.py             # 全局状态地基：路径常量/config 读写/游戏目录探测切换/可变状态
-                     # ⚠️ 可变状态 GAME_DIR/MODS_DIR/LOAD_ORDER_FILE 必须 state.xxx 属性访问
-                     #    （from-import 是值拷贝，apply_game_dir 切换后拿不到新值）
+app.py               # 入口：FastAPI 路由装配 + mod 管理 API + main（~1050 行）
+core/                # 业务模块包（拆分自原 app.py 2400+ 行）
+  state.py           #   全局状态/路径常量/游戏目录（⚠️ BASE_DIR = __file__ 的 parent.parent）
+  load_order.py      #   清单读写 + set_load_order
+  patch.py           #   补丁/守卫/自动装载
+  mods.py            #   mod 扫描/显示名/依赖
+  imports.py         #   导入/整合包/备份/导出（最大块）
+  dmf.py             #   DMF 安装
+  crash.py           #   游戏启动/崩溃检测/控制台日志（APIRouter）
+  theme.py           #   主题/自定义背景（APIRouter）
+  profiles.py        #   方案预设（APIRouter）
 static/index.html    # 前端（单文件，原生 JS + SortableJS）
 dmf_payload/         # 内置 DMF 组件（官方原版 + 自译汉化）
 tools/               # 发布/测试脚本（见下）
@@ -30,13 +37,13 @@ CHANGELOG.md         # 更新历史（与用户共同维护，以用户手改为
 RULES.md             # ← 工作条例在 workspace，不在项目里！
 ```
 
-> 架构拆分（方案 C）已完成全部阶段：state.py（路径/配置/游戏目录）、load_order.py（清单+set_load_order）、
-> patch.py（补丁/守卫）、mods.py（扫描/显示名/依赖）、imports.py（导入/整合包/备份/导出）、dmf.py（DMF 安装）、
-> crash.py（启动/崩溃检测/控制台日志，APIRouter）、theme.py（主题/自定义背景，APIRouter）、profiles.py（预设，APIRouter）。
-> **app.py 从 2443 行降到 ~1050 行**（路由装配 + mod 管理 API + main）。
+> 架构拆分（方案 C）已完成：**业务模块已归入 `core/` 包**（state/load_order/patch/mods/imports/dmf/crash/theme/profiles），
+> app.py（~1050 行）为入口（路由装配 + mod 管理 API + main）。
+> ⚠️ core/state.py 的 BASE_DIR 用 `__file__` 的 parent.parent 定位项目根（core/ 在子目录，
+>    不能用 parent——曾导致 config 找不到、数据写到 core/ 的坑）；frozen 模式用 sys.executable 不受影响。
 > ⚠️ 测试脚本约定：直接 import app 的测试用 state.XXX = 覆盖全局（不是 app.XXX，值拷贝陷阱）；
 >     guard 相关测试需同时覆盖 patch.is_game_running；模块内调用 patch 函数用 patch.xxx() 属性访问；
->     主题相关测试覆盖 theme.CUSTOM_THEME_DIR（模块级常量，改 state.BASE_DIR 无效）；已统一 stdout reconfigure 防 GBK。
+>     主题相关测试覆盖 theme.CUSTOM_THEME_DIR（模块级常量）；已统一 stdout reconfigure 防 GBK。
 > ⚠️ test_pack 的 SAMPLE 留空前置 check 无条件失败是已知历史 bug，可忽略。
 
 ## 三、当前功能全景（v0.3.1）

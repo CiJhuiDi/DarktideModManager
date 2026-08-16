@@ -4,7 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
-import state
+from core import state
 
 CREATE_NO_WINDOW = 0x08000000
 

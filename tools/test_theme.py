@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
-import theme
-import state
+from core import theme
+from core import state
 
 MOCK = Path(r'D:\DeepseekWorkspace\darktide-mod-manager\mock')
 state.CONFIG_FILE = MOCK / 'config_theme_test.json'

@@ -23,24 +23,24 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import state
-from state import (GAME_FOLDER_NAME, APP_ID, SYSTEM_MODS,
+from core import state
+from core.state import (GAME_FOLDER_NAME, APP_ID, SYSTEM_MODS,
                    load_config, detect_game_dir, find_game_dir, is_valid_game_dir,
                    apply_game_dir)
-from load_order import (read_load_order, write_load_order, backup_load_order,
+from core.load_order import (read_load_order, write_load_order, backup_load_order,
                     normalize_entries, enabled_names, is_exact_disable, set_load_order)
-from patch import (patch_state, is_game_running, is_game_running_real,
+from core.patch import (patch_state, is_game_running, is_game_running_real,
                   autopatch_path, autopatch_off_path, auto_patch_disabled,
                   set_auto_patch_disabled, auto_patch_if_needed,
                   guard_game_running, _run_patch, CREATE_NO_WINDOW)
-from mods import (load_notes, save_notes, scan_mods)
-from imports import (import_mod_archive, import_mod_from_dir,
+from core.mods import (load_notes, save_notes, scan_mods)
+from core.imports import (import_mod_archive, import_mod_from_dir,
                      preview_pack_archive, import_pack_archive, _scan_mods_dir,
                      diff_mods, _fmt_ts, prune_backups, export_pack)
-from dmf import dmf_state, install_dmf
-from crash import router as crash_router
-from theme import router as theme_router, custom_theme_state
-from profiles import router as profiles_router, profile_path
+from core.dmf import dmf_state, install_dmf
+from core.crash import router as crash_router
+from core.theme import router as theme_router, custom_theme_state
+from core.profiles import router as profiles_router, profile_path
 
 THEMES = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor")
 
@@ -925,6 +925,8 @@ def api_set_order(body: OrderBody):
         return g
     return set_load_order(body.mods)
 
+
+@app.get("/")
 def index():
     """返回主页面，并把持久化主题内联进 body 标签，避免启动闪默认色"""
     html = (state.STATIC_DIR / "index.html").read_text(encoding="utf-8")

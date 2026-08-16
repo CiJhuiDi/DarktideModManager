@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
-import mods
-import state
+from core import mods
+from core import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'

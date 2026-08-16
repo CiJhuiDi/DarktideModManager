@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
-import state
+from core import state
 
 MOCK = Path(r'D:\DeepseekWorkspace\darktide-mod-manager\mock')
 state.BACKUP_DIR = MOCK / 'backups_prune_test'

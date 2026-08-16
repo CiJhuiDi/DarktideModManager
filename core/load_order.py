@@ -3,7 +3,7 @@
 import shutil
 from datetime import datetime
 
-import state
+from core import state
 
 
 def read_load_order() -> list:

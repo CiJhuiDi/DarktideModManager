@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import app
-import patch
-import state
+from core import patch
+from core import state
 
 ROOT = Path(__file__).resolve().parent
 # 真实整合包样例（可选）：有真实整合包时测试更全面；缺失则自动跳过场景 1/2/7

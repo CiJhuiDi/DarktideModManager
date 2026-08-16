@@ -9,9 +9,9 @@ from pathlib import Path
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-import patch
-import state
-from state import APP_ID, is_valid_game_dir
+from core import patch
+from core import state
+from core.state import APP_ID, is_valid_game_dir
 
 router = APIRouter()
 

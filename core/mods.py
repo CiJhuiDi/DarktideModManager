@@ -4,8 +4,8 @@ import json
 import re
 from pathlib import Path
 
-import state
-from load_order import enabled_names, read_load_order
+from core import state
+from core.load_order import enabled_names, read_load_order
 
 NOTES_FILE = state.BASE_DIR / "notes.json"
 _notes_cache: dict | None = None

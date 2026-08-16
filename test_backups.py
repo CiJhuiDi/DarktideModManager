@@ -10,8 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import app
-import patch
-import state
+from core import patch
+from core import state
 
 ROOT = Path(__file__).resolve().parent
 MOCK = ROOT / "mock_bak"

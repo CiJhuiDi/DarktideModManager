@@ -1,0 +1,7 @@
+模块归入 core/ 包 + 修复 frozen 路径与首页路由
+
+- 9 个业务模块移入 core/ 包（git mv 保留历史），29 个文件 import 改 from core.xxx
+- 修复 core/state.py BASE_DIR：开发模式 __file__ 的 parent.parent（core/ 子目录）；frozen 模式 sys.executable 的父目录（曾导致 exe 数据写到 exe 文件路径、config 找不到）
+- 修复 app.py 首页路由：补回被迁移脚本吞掉的 @app.get("/")（exe 白屏根因）
+- 全部测试通过：test_api 24/24、test_import 16/16、test_formats 13/13、tools 19 套件
+- 已构建 exe 供用户测试（release/ 目录，gitignore 不提交）

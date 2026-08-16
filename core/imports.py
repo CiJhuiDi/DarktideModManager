@@ -9,9 +9,9 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-import state
-import patch
-from load_order import enabled_names, read_load_order, write_load_order
+from core import state
+from core import patch
+from core.load_order import enabled_names, read_load_order, write_load_order
 
 
 # ---------------------------------------------------------------- mod 导入

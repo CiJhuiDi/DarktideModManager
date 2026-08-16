@@ -17,10 +17,13 @@ from pathlib import Path
 
 IS_FROZEN = getattr(sys, "frozen", False)
 
-# 开发模式: 脚本目录；frozen(exe) 模式: exe 所在目录（可写数据放这里）
-BASE_DIR = Path(sys.executable if IS_FROZEN else __file__).resolve().parent
+# 开发模式项目根：core/ 的父目录（本文件在 core/ 子包内）
+_DEV_ROOT = Path(__file__).resolve().parent.parent
+
+# 开发模式: 项目根；frozen(exe) 模式: exe 所在目录（可写数据放这里，注意取 sys.executable 的父目录）
+BASE_DIR = Path(sys.executable).resolve().parent if IS_FROZEN else _DEV_ROOT
 # 资源目录: frozen 时是 PyInstaller 解压的临时目录（只读资源）
-RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", _DEV_ROOT))
 
 CONFIG_FILE = BASE_DIR / "config.json"
 PROFILES_DIR = BASE_DIR / "profiles"

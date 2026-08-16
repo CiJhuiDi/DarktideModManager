@@ -8,9 +8,9 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-import patch
-import state
-from load_order import enabled_names, read_load_order, set_load_order
+from core import patch
+from core import state
+from core.load_order import enabled_names, read_load_order, set_load_order
 
 router = APIRouter()
 

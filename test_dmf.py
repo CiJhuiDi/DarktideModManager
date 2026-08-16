@@ -10,9 +10,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import app
-import dmf
-import patch
-import state
+from core import dmf
+from core import patch
+from core import state
 
 ROOT = Path(__file__).resolve().parent
 FRESH = ROOT / "mock_fresh"
