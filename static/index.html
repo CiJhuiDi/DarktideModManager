@@ -1463,7 +1463,7 @@
     function renderDepBanner() {
       const el = $('depBanner');
       if (!el) return;
-      if (depInfo.bad <= 0) { el.innerHTML = ''; setBannerLight('dep', 'green'); return; }
+      if (depInfo.bad <= 0) { el.innerHTML = '<div class="banner ok"><span class="b-text">✓ 依赖检查正常</span></div>'; setBannerLight('dep', 'green'); return; }
       setBannerLight('dep', 'red');
       const missN = depInfo.missing.length;
       const cycN = depInfo.cycles.length;
@@ -1590,12 +1590,15 @@
     const bannerVisible = { dmf: true, patch: true, dep: true };
     let bannerAutoCollapse = true;         // 正常状态自动收起
     const bannerLastColor = { dmf: null, patch: null, dep: null };  // 上次灯色（状态变化检测）
+    const bannerExpandTime = { dmf: 0, patch: 0, dep: 0 };  // 手动展开时间（30s 内不被自动收起）
     function setBannerLight(key, color) {
       const el = $('light' + key[0].toUpperCase() + key.slice(1));
       if (!el) return;
       el.className = 'b-light ' + (color || 'gray');  // 颜色由圆点表达，不加文字
-      if (bannerAutoCollapse) {
-        if (color === 'green' && bannerVisible[key] && bannerLastColor[key] !== 'green') {
+      if (bannerAutoCollapse && key !== 'dep') {
+        // 依赖横幅不参与自动收起/展开（始终按手动控制显示）
+        const manualRecent = Date.now() - bannerExpandTime[key] < 30000;  // 手动展开后 30s 内不自动收
+        if (color === 'green' && bannerVisible[key] && bannerLastColor[key] !== 'green' && !manualRecent) {
           // 状态刚变正常 → 自动收起为指示灯
           bannerVisible[key] = false;
           const chk = $('chk' + key[0].toUpperCase() + key.slice(1));
@@ -1627,6 +1630,10 @@
       const n = ['dmf', 'patch', 'dep'].filter(show).length;
       const btn = $('bannerSelectBtn');
       if (btn) btn.textContent = `横幅：${n}/3 ▾`;
+      // 一键按钮文字随状态同步（自动收起/展开后也一致）
+      const allVisible = ['dmf', 'patch', 'dep'].every(k => bannerVisible[k]);
+      const tbtn = $('bannerToggleAll');
+      if (tbtn) tbtn.textContent = allVisible ? '⏹ 收起全部' : '▶ 展开全部';
     }
     $('bannerSelectBtn')?.addEventListener('click', e => {
       e.stopPropagation();
@@ -1636,19 +1643,21 @@
     $('bannerToggleAll')?.addEventListener('click', () => {
       // 一键收起/展开：当前全部可见 → 全部收起；否则全部展开
       const allVisible = ['dmf', 'patch', 'dep'].every(k => bannerVisible[k]);
+      const now = Date.now();
       ['dmf', 'patch', 'dep'].forEach(k => {
         bannerVisible[k] = !allVisible;
+        if (!allVisible) bannerExpandTime[k] = now;  // 展开操作：30s 内不自动收起
         const chk = $('chk' + k[0].toUpperCase() + k.slice(1));
         if (chk) chk.checked = !allVisible;
       });
       const btn = $('bannerToggleAll');
-      if (btn) btn.textContent = allVisible ? '▶ 展开全部' : '⏹ 收起全部';
+      if (btn) btn.textContent = allVisible ? '⏹ 收起全部' : '▶ 展开全部';
       applyBannerMode();
-    });
-    $('chkAuto')?.addEventListener('change', e => { bannerAutoCollapse = e.target.checked; });
+    });    $('chkAuto')?.addEventListener('change', e => { bannerAutoCollapse = e.target.checked; });
     ['dmf', 'patch', 'dep'].forEach(k => {
       $('chk' + k[0].toUpperCase() + k.slice(1))?.addEventListener('change', e => {
         bannerVisible[k] = e.target.checked;
+        if (e.target.checked) bannerExpandTime[k] = Date.now();  // 手动展开：30s 内不自动收起
         applyBannerMode();
       });
     });
@@ -1661,6 +1670,7 @@
       $('lightItem' + cap)?.addEventListener('click', () => {
         // 点击整行 = 重新展开该横幅
         bannerVisible[k] = true;
+        bannerExpandTime[k] = Date.now();  // 手动展开：30s 内不自动收起
         const chk = $('chk' + cap);
         if (chk) chk.checked = true;
         applyBannerMode();
