@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """验证 force 覆盖更新功能：直接调用 api_dmf_install(force)"""
 import sys, shutil
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 FRESH = ROOT / 'mock_fresh'
@@ -14,9 +17,9 @@ if FRESH.exists():
     shutil.rmtree(FRESH)
 FRESH.mkdir(parents=True)
 (FRESH / 'bundle').mkdir()
-app.GAME_DIR = FRESH
-app.CONFIG_FILE = FRESH / 'config_test.json'
-app.BACKUP_DIR = FRESH / 'backups'
+state.GAME_DIR = FRESH
+state.CONFIG_FILE = FRESH / 'config_test.json'
+state.BACKUP_DIR = FRESH / 'backups'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 # 1. 首次安装

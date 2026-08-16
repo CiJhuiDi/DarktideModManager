@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import sys
 import tempfile
 import webbrowser
@@ -22,20 +23,21 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-IS_FROZEN = getattr(sys, "frozen", False)
-
-# 开发模式: 脚本目录；frozen(exe) 模式: exe 所在目录（可写数据放这里）
-BASE_DIR = Path(sys.executable if IS_FROZEN else __file__).resolve().parent
-# 资源目录: frozen 时是 PyInstaller 解压的临时目录（只读资源）
-RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-
-CONFIG_FILE = BASE_DIR / "config.json"
-PROFILES_DIR = BASE_DIR / "profiles"
-BACKUP_DIR = BASE_DIR / "backups"
-STATIC_DIR = RESOURCE_DIR / "static"
-GAME_FOLDER_NAME = "Warhammer 40,000 DARKTIDE"
-APP_ID = "1361210"
-SYSTEM_MODS = {"base", "dmf"}
+import state
+from state import (GAME_FOLDER_NAME, APP_ID, SYSTEM_MODS,
+                   load_config, detect_game_dir, find_game_dir, is_valid_game_dir,
+                   apply_game_dir)
+from load_order import (read_load_order, write_load_order, backup_load_order,
+                    normalize_entries, enabled_names, is_exact_disable)
+from patch import (patch_state, is_game_running, is_game_running_real,
+                  autopatch_path, autopatch_off_path, auto_patch_disabled,
+                  set_auto_patch_disabled, auto_patch_if_needed,
+                  guard_game_running, _run_patch, CREATE_NO_WINDOW)
+from mods import (load_notes, save_notes, scan_mods)
+from imports import (import_mod_archive, import_mod_from_dir,
+                     preview_pack_archive, import_pack_archive, _scan_mods_dir,
+                     diff_mods, _fmt_ts, prune_backups, export_pack)
+from dmf import dmf_state, install_dmf
 
 THEMES = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor")
 
@@ -85,311 +87,19 @@ def find_free_port(start: int = 8317, tries: int = 50) -> int:
     return start
 
 
-# ---------------------------------------------------------------- 路径探测
-
-def load_config() -> dict:
-    if CONFIG_FILE.exists():
-        try:
-            return json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))  # utf-8-sig 防 BOM
-        except Exception:
-            pass
-    return {}
-
-
-def find_game_dir() -> Path:
-    """优先级: config.json 覆盖 > Steam libraryfolders.vdf 探测 > 默认路径"""
-    cfg = load_config()
-    if cfg.get("game_dir"):
-        p = Path(cfg["game_dir"])
-        if p.exists():
-            return p
-
-    cands = []
-    steam_roots = [
-        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Steam",
-        Path(r"C:\Program Files (x86)\Steam"),
-        Path(r"D:\Steam"),
-        Path(r"D:\SteamLibrary"),
-    ]
-    for root in steam_roots:
-        vdf = root / "steamapps" / "libraryfolders.vdf"
-        if vdf.exists():
-            try:
-                text = vdf.read_text(encoding="utf-8", errors="ignore")
-            except Exception:
-                continue
-            for m in re.finditer(r'"path"\s+"([^"]+)"', text):
-                lib = m.group(1).replace("\\\\", "\\")
-                cands.append(Path(lib) / "steamapps" / "common" / GAME_FOLDER_NAME)
-
-    for c in cands:
-        if is_valid_game_dir(c):
-            return c
-
-    return Path(r"D:\SteamLibrary\steamapps\common") / GAME_FOLDER_NAME
-
-
-def is_valid_game_dir(p: Path) -> bool:
-    """游戏目录判定：mods 存在（已装 DMF）或 bundle 存在（原版新装）都算"""
-    return p.is_dir() and ((p / "mods").is_dir() or (p / "bundle").is_dir())
-
-
-GAME_DIR = find_game_dir()
-MODS_DIR = GAME_DIR / "mods"
-LOAD_ORDER_FILE = MODS_DIR / "mod_load_order.txt"
-
-
-# ---------------------------------------------------------------- load_order 读写
-
-def read_load_order() -> list:
-    """解析 mod_load_order.txt 为行条目: {kind: mod|comment|blank, raw, name?}"""
-    if not LOAD_ORDER_FILE.exists():
-        return []
-    try:
-        text = LOAD_ORDER_FILE.read_text(encoding="utf-8-sig", errors="replace")
-    except Exception:
-        return []
-    entries = []
-    for raw in text.splitlines():
-        s = raw.strip()
-        if not s:
-            entries.append({"kind": "blank", "raw": raw})
-        elif s.startswith("--"):
-            entries.append({"kind": "comment", "raw": raw})
-        else:
-            entries.append({"kind": "mod", "raw": raw, "name": s})
-    return entries
-
-
-def backup_load_order():
-    if not LOAD_ORDER_FILE.exists():
-        return
-    BACKUP_DIR.mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    shutil.copy2(LOAD_ORDER_FILE, BACKUP_DIR / f"mod_load_order.{ts}.bak")
-    # 只留最近 10 份
-    baks = sorted(BACKUP_DIR.glob("mod_load_order.*.bak"))
-    for old in baks[:-10]:
-        old.unlink(missing_ok=True)
-
-
-def write_load_order(entries: list) -> None:
-    if LOAD_ORDER_FILE is None or not MODS_DIR.is_dir():
-        raise FileNotFoundError("游戏 mods 目录不存在，请先设置正确的游戏目录")
-    backup_load_order()
-    entries = normalize_entries(entries)
-    text = "\n".join(e["raw"] for e in entries).rstrip("\n") + "\n"
-    LOAD_ORDER_FILE.write_text(text, encoding="utf-8")
-
-
-def is_exact_disable(raw: str) -> bool:
-    """是否精确禁用行：--名字（无多余说明文字）"""
-    s = raw.strip()
-    return s.startswith("--") and len(s) > 2 and not any(c in s[2:] for c in " \t")
-
-
-def normalize_entries(entries: list) -> list:
-    """写入前去重：同名 mod 行优先，精确禁用行只留第一个；说明注释/空行原样保留"""
-    has_mod = {}
-    for e in entries:
-        if e["kind"] == "mod":
-            has_mod[e["name"]] = True
-    seen = set()
-    out = []
-    for e in entries:
-        if e["kind"] == "mod":
-            if e["name"] not in seen:
-                seen.add(e["name"])
-                out.append(e)
-        elif e["kind"] == "comment" and is_exact_disable(e["raw"]):
-            name = e["raw"].strip()[2:].strip()
-            if has_mod.get(name):
-                continue  # 有启用行，禁用残留删掉
-            if name not in seen:
-                seen.add(name)
-                out.append(e)
-        else:
-            out.append(e)
-    return out
-
-def enabled_names(entries: list) -> list:
-    return [e["name"] for e in entries if e["kind"] == "mod"]
-
-
-# ---------------------------------------------------------------- mod 扫描
-
-NOTES_FILE = BASE_DIR / "notes.json"
-_notes_cache: dict | None = None
-
-
-def load_notes() -> dict:
-    """读取 mod 备注表（exe 旁 notes.json）"""
-    global _notes_cache
-    if _notes_cache is None:
-        try:
-            _notes_cache = json.loads(NOTES_FILE.read_text(encoding="utf-8")) if NOTES_FILE.exists() else {}
-        except Exception:
-            _notes_cache = {}
-    return _notes_cache
-
-
-def save_notes(notes: dict):
-    global _notes_cache
-    _notes_cache = notes
-    try:
-        NOTES_FILE.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
-
-_DISPLAY_CACHE = {}  # mod名 -> (localization mtime, 显示名)
-
-
-def clean_display_name(s: str) -> str:
-    """清理显示名：去富文本颜色标签 {#...}、私用区图标字符、字面反斜杠 xNN 字节转义（Lua 源码风格）"""
-    s = re.sub(r'\{#[^}]*\}', '', s)
-    s = re.sub(r'[\ue000-\uf8ff]', '', s)
-    s = re.sub(r'\\x[0-9a-fA-F]{2}', '', s)
-    return s.strip()
-
-
-def read_display_name(d: Path) -> str:
-    """从 mod 的 localization 文件读取显示名（优先 zh-cn，其次 en）；无则返回空串"""
-    try:
-        locs = [f for f in d.rglob("*localization*.lua") if f.is_file()]
-    except Exception:
-        locs = []
-    if not locs:
-        return ""
-    try:
-        mt = max(f.stat().st_mtime for f in locs)
-    except Exception:
-        mt = 0
-    hit = _DISPLAY_CACHE.get(d.name)
-    if hit and hit[0] == mt:
-        return hit[1]
-    name = ""
-    for loc in locs:
-        try:
-            if loc.stat().st_size > 256 * 1024:
-                continue
-            text = loc.read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            continue
-        for key in ("mod_name", "display_name"):
-            m = re.search(key + r"\s*=\s*\{", text)
-            if not m:
-                continue
-            seg = text[m.end():m.end() + 3000]
-            mz = re.search(r'\["zh-cn"\]\s*=\s*"([^"]+)"', seg)
-            if mz:
-                name = mz.group(1).strip()
-                break
-            me = re.search(r'\ben\s*=\s*"([^"]+)"', seg)
-            if me:
-                name = me.group(1).strip()
-                break
-        if name:
-            break
-    name = clean_display_name(name)
-    _DISPLAY_CACHE[d.name] = (mt, name)
-    return name
-def parse_mod_deps(mod_dir: Path) -> list:
-    """解析 .mod 文件声明的库依赖（packages 字段）。
-    支持格式：packages = { "lib1", "lib2" } 或 packages = { lib1 = true }。
-    注意：packages 里的游戏资源路径（含 / 的 content/wwise 等）是资源声明不是库依赖，跳过。
-    返回依赖名列表（小写规范化）。"""
-    deps = []
-    try:
-        for f in mod_dir.glob("*.mod"):
-            content = f.read_text(encoding="utf-8", errors="ignore")
-            m = re.search(r'packages\s*=\s*\{([^}]*)\}', content, re.S)
-            if not m:
-                continue
-            body = m.group(1)
-            # 列表形式："lib1", "lib2" / 'lib1', 'lib2'
-            for s in re.findall(r'"([^"]+)"', body):
-                if s.strip():
-                    deps.append(s.strip())
-            for s in re.findall(r"'([^']+)'", body):
-                if s.strip():
-                    deps.append(s.strip())
-            # 表形式：lib1 = true / lib1 = 1
-            for s in re.findall(r'([a-zA-Z_][\w-]*)\s*=\s*(?:true|false|\d)', body):
-                if s.strip():
-                    deps.append(s.strip())
-            break  # 只读第一个 .mod
-    except Exception:
-        pass
-    # 过滤：跳过游戏资源路径（含 / 或 \ 的 content/wwise/units 等），去重保序
-    seen, out = set(), []
-    for d in deps:
-        dl = d.lower().strip()
-        if '/' in d or '\\' in d or dl.startswith(("content", "wwise", "units")):
-            continue  # 游戏资源路径，不是库依赖
-        if dl not in seen:
-            seen.add(dl)
-            out.append(dl)
-    return out
-
-
-def scan_mods() -> list:
-    entries = read_load_order()
-    enabled = enabled_names(entries)
-    enabled_set = set(enabled)
-    result = []
-    seen = set()
-
-    if MODS_DIR.is_dir():
-        for d in sorted(MODS_DIR.iterdir()):
-            if not d.is_dir() or d.name in SYSTEM_MODS:
-                continue
-            if ".bak_" in d.name:
-                continue  # 导入备份残留目录，不当 mod 显示
-            name = d.name
-            seen.add(name)
-            version = ""
-            try:
-                for f in d.glob("*.mod"):
-                    m = re.search(r'version\s*=\s*"([^"]+)"', f.read_text(encoding="utf-8", errors="ignore"))
-                    if m:
-                        version = m.group(1)
-                        break
-            except Exception:
-                pass
-            result.append({
-                "name": name,
-                "display_name": read_display_name(d),
-                "note": load_notes().get(name, ""),
-                "version": version,
-                "enabled": name in enabled_set,
-                "order": enabled.index(name) if name in enabled_set else None,
-                "missing": False,
-                "dependencies": parse_mod_deps(d),
-            })
-
-    # 清单里有但磁盘上找不到的（用户删了文件夹）
-    for i, n in enumerate(enabled):
-        if n not in seen:
-            result.append({"name": n, "display_name": "", "version": "", "enabled": True, "order": i, "missing": True, "dependencies": []})
-
-    result.sort(key=lambda x: (x["enabled"] is False, x["order"] if x["order"] is not None else 10**9))
-    return result
-
-
 # ---------------------------------------------------------------- API
 
 @app.get("/api/status")
 def api_status():
-    valid = is_valid_game_dir(GAME_DIR)
+    valid = is_valid_game_dir(state.GAME_DIR)
     return {
-        "game_dir": str(GAME_DIR),
+        "game_dir": str(state.GAME_DIR),
         "game_dir_valid": valid,
-        "mods_dir": str(MODS_DIR),
-        "load_order_exists": LOAD_ORDER_FILE.exists() if LOAD_ORDER_FILE else False,
+        "mods_dir": str(state.MODS_DIR),
+        "load_order_exists": state.LOAD_ORDER_FILE.exists() if state.LOAD_ORDER_FILE else False,
         "total": len(scan_mods()),
         "enabled": len(enabled_names(read_load_order())),
-        "profiles_dir": str(PROFILES_DIR),
+        "profiles_dir": str(state.PROFILES_DIR),
         "patch": patch_state(),
         "game_running": is_game_running(),
         "simulated_game_running": bool(load_config().get("simulate_game_running")),
@@ -398,45 +108,6 @@ def api_status():
         "custom_theme": custom_theme_state(),
         "dmf": dmf_state(),
     }
-
-
-# ---------------------------------------------------------------- 补丁检测/一键打补丁
-
-def patch_state() -> dict:
-    """权威检测：bundle_database.data 是否被 dtkit-patch 注入补丁引用。
-    注意：不能用 *.patch_999 文件存在性判断——卸载补丁后该文件仍在。
-    警告：永远不要改名/删除 patch_999 或 mod_loader 文件——游戏启动时
-    自动装载会重新打补丁，文件缺失会导致游戏 Fatal Error 崩溃。"""
-    tool = GAME_DIR / "tools" / "dtkit-patch.exe"
-    patched = False
-    db = GAME_DIR / "bundle" / "bundle_database.data"
-    try:
-        if db.is_file():
-            with open(db, "rb") as f:
-                head = f.read(64 * 1024 * 1024)
-            patched = b"patch_999" in head
-    except Exception:
-        patched = False
-    return {
-        "patched": patched,
-        "tool_exists": tool.exists(),
-        "tool_path": str(tool),
-        "database_exists": db.is_file(),
-    }
-
-
-def is_game_running() -> bool:
-    """真实检测：进程列表里有 Darktide.exe 即运行中。
-    测试模式：simulate_game_running=True 时直接返回 True（用于模拟环境测试防呆，不用真开游戏）。"""
-    if load_config().get("simulate_game_running"):
-        return True
-    try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                             capture_output=True, timeout=10,
-                             creationflags=subprocess.CREATE_NO_WINDOW).stdout
-        return "Darktide.exe" in out.decode("gbk", errors="ignore")
-    except Exception:
-        return False
 
 
 class SimulateGameBody(BaseModel):
@@ -453,7 +124,7 @@ def api_simulate_game(body: SimulateGameBody):
     cfg = load_config()
     cfg["simulate_game_running"] = body.running
     try:
-        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return {"ok": False, "error": f"写入配置失败: {e}"}
     return {"ok": True, "running": body.running, "simulated": True}
@@ -475,13 +146,13 @@ def api_theme(body: ThemeBody):
     if body.grad in valid_grads:
         cfg["grad"] = body.grad
     try:
-        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return {"ok": False, "error": f"写入配置失败: {e}"}
     return {"ok": True, "theme": cfg.get("theme", "abyss"), "grad": cfg.get("grad", "diag")}
 
 
-CUSTOM_THEME_DIR = BASE_DIR / "custom_theme"
+CUSTOM_THEME_DIR = state.BASE_DIR / "custom_theme"
 CUSTOM_THEME_MAX_BYTES = 8 * 1024 * 1024  # 8MB
 CUSTOM_THEME_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
@@ -530,7 +201,7 @@ async def api_theme_custom_upload(mode: str = Form("dark"), file: UploadFile = F
         cfg = load_config()
         cfg["theme"] = "custom"
         cfg["custom_theme_mode"] = mode
-        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return {"ok": False, "error": f"保存失败: {e}"}
     return {"ok": True, "mode": mode}
@@ -557,95 +228,15 @@ def api_theme_custom_remove():
     if cfg.get("theme") == "custom":
         cfg["theme"] = "abyss"
     try:
-        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception as e:
         return {"ok": False, "error": f"写入配置失败: {e}"}
     return {"ok": True, "removed": removed}
 
 
-def is_game_running_real() -> bool:
-    """只看真实进程，不看模拟开关"""
-    try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                             capture_output=True, timeout=10,
-                             creationflags=subprocess.CREATE_NO_WINDOW).stdout
-        return "Darktide.exe" in out.decode("gbk", errors="ignore")
-    except Exception:
-        return False
-
-
-CREATE_NO_WINDOW = 0x08000000
-
-
-# 自动装载插件：游戏启动时引擎加载它，它会检测并自动重新打补丁
-AUTOPATCH_DLL = Path("binaries") / "plugins" / "_dt_mod_autopatch.dll"
-
-
-def autopatch_path() -> Path:
-    return GAME_DIR / AUTOPATCH_DLL
-
-
-def autopatch_off_path() -> Path:
-    return GAME_DIR / "binaries" / "plugins" / "_dt_mod_autopatch.dll.off"
-
-
-def auto_patch_disabled() -> bool:
-    """用户手动卸载过（禁用自动装载）"""
-    return load_config().get("auto_patch_disabled", False)
-
-
-def set_auto_patch_disabled(v: bool):
-    cfg = load_config()
-    cfg["auto_patch_disabled"] = v
-    try:
-        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
-
-def auto_patch_if_needed() -> dict:
-    """管理器版自动装载：补丁未打 + 未手动禁用 + 游戏未运行 -> 自动打补丁"""
-    st = patch_state()
-    if st["patched"]:
-        return {"ok": True, "message": "补丁已激活"}
-    if auto_patch_disabled():
-        return {"ok": True, "message": "自动装载已禁用（手动卸载状态）"}
-    if is_game_running():
-        return {"ok": True, "message": "游戏运行中，跳过自动打补丁"}
-    r = _run_patch("--patch")
-    r["message"] = "✓ 自动装载：补丁已重新打上" if r.get("patched") else "✗ 自动打补丁失败"
-    return r
-
-
-def guard_game_running(action: str = "此操作") -> dict | None:
-    """防呆：游戏运行时拒绝会改动 mods/启停清单的操作。返回 None=放行，否则返回拒绝响应。"""
-    if is_game_running():
-        return {"ok": False, "error": f"游戏正在运行，{action}需先关闭游戏"}
-    return None
-
-
 @app.post("/api/patch/auto")
 def api_patch_auto():
     return auto_patch_if_needed()
-
-
-def _run_patch(action: str) -> dict:
-    """执行 dtkit-patch（--patch / --unpatch）"""
-    st = patch_state()
-    if not st["tool_exists"]:
-        return {"ok": False, "error": "未找到 tools\\dtkit-patch.exe，无法操作补丁", **st}
-    if is_game_running():
-        return {"ok": False, "error": "游戏正在运行，请先关闭游戏再操作补丁", **st}
-    try:
-        r = subprocess.run(
-            [str(st["tool_path"]), action, str(GAME_DIR / "bundle")],
-            cwd=str(GAME_DIR), capture_output=True, text=True, timeout=120,
-            creationflags=CREATE_NO_WINDOW)
-        new_st = patch_state()
-        return {"ok": r.returncode == 0, "returncode": r.returncode,
-                "output": (r.stdout or r.stderr or "")[-600:], **new_st}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
 
 
 @app.post("/api/patch/install")
@@ -706,18 +297,20 @@ GAME_LAUNCH_ARGS = [
     "--lua-heap-mb-size", "2048",
 ]
 
+_launched_game = None  # 管理器启动的游戏进程（崩溃检测读退出码用）
+
 
 @app.post("/api/game/launch")
 def api_launch_game():
-    if not is_valid_game_dir(GAME_DIR):
+    if not is_valid_game_dir(state.GAME_DIR):
         return {"ok": False, "error": "未设置正确的游戏目录"}
     if is_game_running():
         return {"ok": False, "error": "游戏已在运行"}
     # 自动装载：启动游戏前补打补丁（若用户未手动禁用）
     auto_patch_if_needed()
-    exe = GAME_DIR / "binaries" / "Darktide.exe"
+    exe = state.GAME_DIR / "binaries" / "Darktide.exe"
     if not exe.exists():
-        exe = GAME_DIR / "content" / "binaries" / "Darktide.exe"
+        exe = state.GAME_DIR / "content" / "binaries" / "Darktide.exe"
     if not exe.exists():
         return {"ok": False, "error": "未找到 Darktide.exe，请检查游戏文件完整性"}
     try:
@@ -731,204 +324,50 @@ def api_launch_game():
     env = os.environ.copy()
     env["SteamAppId"] = APP_ID
     try:
-        subprocess.Popen([str(exe)] + GAME_LAUNCH_ARGS, cwd=str(exe.parent),
-                         env=env, creationflags=CREATE_NO_WINDOW)
+        proc = subprocess.Popen([str(exe)] + GAME_LAUNCH_ARGS, cwd=str(exe.parent),
+                                env=env, creationflags=CREATE_NO_WINDOW)
+        # 保存句柄：崩溃检测时可读取退出码（异常退出码为负值，如 0xC0000005）
+        global _launched_game
+        _launched_game = {"proc": proc, "pid": proc.pid}
         return {"ok": True, "message": "游戏启动中，请稍候…"}
     except Exception as e:
         return {"ok": False, "error": f"启动失败: {e}"}
 
 
-# ---------------------------------------------------------------- mod 导入
+def is_crash_code(code) -> bool:
+    """NTSTATUS 异常码识别：0xC0000000~0xCFFFFFFF（崩溃/错误状态）。
+    Windows 下 GetExitCodeProcess 可能返回有符号负数或对应无符号值，两种都覆盖。"""
+    if code is None:
+        return False
+    u = (code & 0xFFFFFFFF)
+    return 0xC0000000 <= u <= 0xCFFFFFFF
 
-def find_rar_tool() -> str | None:
-    """找系统里能解 rar 的工具：WinRAR / 7-Zip"""
+
+@app.get("/api/game/launched_exit")
+def api_launched_exit():
+    """管理器启动的游戏进程退出状态：运行中 exit_code=None；已退出返回退出码。
+    崩溃时 Windows 返回 NTSTATUS 异常码（如 0xC0000005），crashed=True。"""
+    global _launched_game
+    proc = _launched_game.get("proc") if _launched_game else None
+    if proc is None:
+        return {"ok": True, "launched": False, "exit_code": None, "crashed": False}
+    code = proc.poll()
+    if code is None:
+        return {"ok": True, "launched": True, "exit_code": None, "crashed": False}  # 仍在运行
+    # 已退出：取回句柄状态后清除，避免重复读取
     try:
-        import winreg
-        for key in (r"SOFTWARE\WinRAR", r"SOFTWARE\WOW6432Node\WinRAR"):
-            try:
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as k:
-                    for val in ("exe64", "exe"):
-                        try:
-                            exe = winreg.QueryValueEx(k, val)[0]
-                            if exe and os.path.isfile(exe):
-                                return exe
-                        except OSError:
-                            continue
-            except OSError:
-                continue
+        proc.wait(timeout=5)
     except Exception:
         pass
-    for p in (r"C:\Program Files\WinRAR\UnRAR.exe", r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
-              r"C:\Program Files\WinRAR\WinRAR.exe", r"C:\Program Files (x86)\WinRAR\WinRAR.exe",
-              r"C:\Program Files\7-Zip\7z.exe", r"C:\Program Files (x86)\7-Zip\7z.exe"):
-        if os.path.isfile(p):
-            return p
-    return None
+    _launched_game = None
+    return {"ok": True, "launched": True, "exit_code": code, "crashed": is_crash_code(code)}
 
 
-def extract_archive(data: bytes, filename: str, out_dir: Path) -> str | None:
-    """按格式解压到 out_dir；返回 None 成功，否则错误信息"""
-    import tarfile
-    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    fd, tmp_path = tempfile.mkstemp(suffix="." + (ext or "bin"))
-    os.close(fd)
-    try:
-        with open(tmp_path, "wb") as f:
-            f.write(data)
-
-        if ext == "zip":
-            try:
-                with zipfile.ZipFile(tmp_path) as z:
-                    for i in z.infolist():
-                        if ".." in i.filename.replace("\\", "/").split("/"):
-                            return "压缩包包含非法路径，已拒绝"
-                    z.extractall(out_dir)
-            except zipfile.BadZipFile:
-                return "不是有效的 zip 文件（文件损坏或格式不对）"
-        elif ext in ("tar", "gz", "tgz", "bz2", "xz"):
-            with tarfile.open(tmp_path) as t:
-                for m in t.getmembers():
-                    if ".." in m.name.replace("\\", "/").split("/"):
-                        return "压缩包包含非法路径，已拒绝"
-                t.extractall(out_dir, filter="data")
-        elif ext == "7z":
-            import py7zr
-            with py7zr.SevenZipFile(tmp_path) as z:
-                z.extractall(out_dir)
-        elif ext == "rar":
-            tool = find_rar_tool()
-            if not tool:
-                return "解压 rar 需要系统安装 WinRAR 或 7-Zip（未检测到）。可安装 WinRAR 后用本工具导入，或用 7-Zip 把 rar 转为 zip"
-            tool_l = tool.lower()
-            if tool_l.endswith("7z.exe"):
-                r = subprocess.run([tool, "x", "-y", "-o" + str(out_dir), tmp_path],
-                                   capture_output=True, text=True, timeout=180,
-                                   creationflags=CREATE_NO_WINDOW)
-            else:  # UnRAR.exe / WinRAR.exe
-                r = subprocess.run([tool, "x", "-y", "-o+", tmp_path, str(out_dir) + "\\"],
-                                   capture_output=True, text=True, timeout=180,
-                                   creationflags=CREATE_NO_WINDOW)
-            if r.returncode != 0:
-                return f"rar 解压失败: {(r.stdout or r.stderr or '')[-200:]}"
-        else:
-            # 未知扩展名：先试 zip，再试 7z
-            try:
-                with zipfile.ZipFile(tmp_path) as z:
-                    for i in z.infolist():
-                        if ".." in i.filename.replace("\\", "/").split("/"):
-                            return "压缩包包含非法路径，已拒绝"
-                    z.extractall(out_dir)
-            except zipfile.BadZipFile:
-                try:
-                    import py7zr
-                    with py7zr.SevenZipFile(tmp_path) as z:
-                        z.extractall(out_dir)
-                except Exception:
-                    return f"不支持的压缩格式: {ext or '未知'}"
-        return None
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-
-def import_mod_archive(filename: str, data: bytes, force_mod: bool = False) -> dict:
-    if not MODS_DIR.is_dir():
-        return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
-    with tempfile.TemporaryDirectory() as td:
-        out = Path(td) / "out"
-        out.mkdir()
-        err = extract_archive(data, filename, out)
-        if err:
-            return {"file": filename, "ok": False, "error": err}
-        return import_mod_from_dir(out, filename, force_mod=force_mod)
-
-
-def import_mod_from_dir(out: Path, filename: str, force_mod: bool = False) -> dict:
-    """从已解压目录导入 mod（压缩包解压后 / 用户选择的文件夹共用）。"""
-    if not MODS_DIR.is_dir():
-        return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
-    # 整合包结构（mods/ 或 binaries/mod_loader 等）→ 提示走整合包导入（前端会自动转）
-    # force_mod=True 时跳过分类，强制按单个 mod 处理（用户确认过）
-    if not force_mod:
-        kind = classify_archive(out)
-        if kind == "pack":
-            return {"file": filename, "ok": False, "is_pack": True,
-                    "error": "检测到整合包结构，请用「导入整合包」流程"}
-        if kind == "ambiguous":
-            # 模棱两可：mods/ 下只有一个 mod 且无清单，可能是单 mod 包裹或精简整合包
-            return {"file": filename, "ok": False, "ambiguous": True,
-                    "error": "检测到 mods/ 目录结构，无法确定是单个 mod 还是整合包"}
-        mod_files = list(out.rglob("*.mod"))
-        if not mod_files:
-            return {"file": filename, "ok": False,
-                    "error": "所选内容内没有 .mod 文件，不是 DMF mod 包（整个整合包请用「导入整合包」）"}
-    else:
-        mod_files = list(out.rglob("*.mod"))
-        if not mod_files:
-            return {"file": filename, "ok": False,
-                    "error": "所选内容内没有 .mod 文件，不是 DMF mod 包"}
-    first = mod_files[0]
-
-    # 从 .mod 内容提取真实 mod 名
-    try:
-        content = first.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        content = ""
-    real_name = ""
-    m = re.search(r'new_mod\(\s*"([^"]+)"', content)
-    if m:
-        real_name = m.group(1).strip()
-    if not real_name:
-        m2 = re.search(r'mod_script\s*=\s*"([^"]+)"', content)
-        if m2:
-            seg = m2.group(1).replace("\\", "/").split("/")
-            if len(seg) >= 3:
-                real_name = seg[-2] or seg[-1]
-    if not real_name:
-        parts = str(first.relative_to(out)).replace("\\", "/").split("/")
-        real_name = parts[-2] if len(parts) >= 2 else first.stem
-    real_name = re.sub(r'[\\/:*?"<>|]', "_", real_name).strip()
-    if not real_name:
-        return {"file": filename, "ok": False, "error": "无法确定 mod 名称"}
-
-    target = MODS_DIR / real_name
-    if target.exists():
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        bak = target.with_name(f"{real_name}.bak_{ts}")
-        i = 2
-        while bak.exists():
-            bak = target.with_name(f"{real_name}.bak_{ts}_{i}")
-            i += 1
-        target.rename(bak)
-    target.mkdir(parents=True, exist_ok=True)
-
-    # 拷贝 .mod 所在目录的内容；根目录的散文件也一并拷贝
-    src_root = first.parent
-    for item in src_root.iterdir():
-        if item.is_dir():
-            shutil.copytree(item, target / item.name, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, target / item.name)
-    if src_root != out:
-        for item in out.iterdir():
-            if item.is_file():
-                shutil.copy2(item, target / item.name)
-
-    # 加入启用清单（末尾）
-    entries = read_load_order()
-    names_in_file = {e["name"] for e in entries if e["kind"] == "mod"}
-    added = real_name not in names_in_file
-    if added:
-        entries.append({"kind": "mod", "raw": real_name, "name": real_name})
-        write_load_order(entries)
-    return {"file": filename, "ok": True, "mod": real_name, "added_to_load_order": added}
-
+# ---------------------------------------------------------------- mod 导入
 
 @app.post("/api/mods/import")
 async def api_import_mods(files: list[UploadFile] = File(...), force_mod: bool = Form(False)):
-    if not is_valid_game_dir(GAME_DIR):
+    if not is_valid_game_dir(state.GAME_DIR):
         return {"ok": False, "results": [], "error": "未设置正确的游戏目录"}
     g = guard_game_running("导入 mod")
     if g:
@@ -967,281 +406,27 @@ def api_import_folder(body: ImportFolderBody):
 # ---------------------------------------------------------------- DMF 一键安装
 
 # 内置 DMF 组件：关键文件清单（用于检测"是否装齐"；释放按 payload 子树全量拷贝）
-DMF_FILES = [
-    "mods/base/mod_manager.lua",
-    "mods/base/function/class.lua",
-    "mods/base/function/hook.lua",
-    "mods/base/function/require.lua",
-    "mods/dmf/dmf.mod",
-    "mods/dmf/localization/dmf.lua",
-    "mods/dmf/scripts/mods/dmf/dmf_loader.lua",
-    "tools/dtkit-patch.exe",
-    "binaries/plugins/_dt_mod_autopatch.dll",
-]
-# 释放时只拷这些子树（保持相对游戏目录结构；payload 根文件如 VERSION.txt 不释放）
-DMF_SUBTREES = ["mods", "tools", "binaries"]
-DMF_PAYLOAD_DIR = RESOURCE_DIR / "dmf_payload"
-AUTOPATCH_DLL_OFF = Path("binaries") / "plugins" / "_dt_mod_autopatch.dll.off"
-
-
-def dmf_payload_files() -> list:
-    """payload 内待释放文件（相对游戏目录路径）"""
-    files = []
-    for sub in DMF_SUBTREES:
-        base = DMF_PAYLOAD_DIR / sub
-        if base.is_dir():
-            for f in base.rglob("*"):
-                if f.is_file():
-                    files.append(f.relative_to(DMF_PAYLOAD_DIR))
-    return files
-
-
-def dmf_payload_version() -> str:
-    """内置 DMF 组件版本说明（VERSION.txt 首行，仅供展示）"""
-    try:
-        v = (DMF_PAYLOAD_DIR / "VERSION.txt").read_text(encoding="utf-8", errors="ignore")
-        return v.strip().splitlines()[0] if v.strip() else ""
-    except Exception:
-        return ""
-
-
-def dmf_state() -> dict:
-    """检测游戏目录 DMF 组件齐全度（自动装载插件被主动禁用 .off 不算缺失）"""
-    valid = is_valid_game_dir(GAME_DIR)
-    missing = []
-    if valid:
-        off_exists = (GAME_DIR / AUTOPATCH_DLL_OFF).exists()
-        for rel in DMF_FILES:
-            if not (GAME_DIR / rel).is_file():
-                # 卸载补丁会把自动装载插件改名 .off 禁用——那是用户主动操作，不是缺失
-                if rel == "binaries/plugins/_dt_mod_autopatch.dll" and off_exists:
-                    continue
-                missing.append(rel)
-    return {
-        "game_dir_valid": valid,
-        "installed": valid and not missing,
-        "missing": missing,
-        "autopatch_off": (GAME_DIR / AUTOPATCH_DLL_OFF).exists() if valid else False,
-        "payload_version": dmf_payload_version(),
-    }
-
-
 class DmfInstallBody(BaseModel):
     force: bool = False
 
 
 @app.post("/api/dmf/install")
 def api_dmf_install(body: DmfInstallBody = Body(default=None)):
-    """一键安装/覆盖更新 DMF：释放内置组件（已有文件先备份）→ 恢复自动装载 → 打补丁激活 mods。
-    force=True 时即使已装完整也强制用内置组件覆盖（用于更新/清除旧版残留组件）。"""
-    if not GAME_DIR.is_dir():
-        return {"ok": False, "error": "未设置正确的游戏目录，请先到「关于」页设置"}
-    if not is_valid_game_dir(GAME_DIR):
-        return {"ok": False, "error": "游戏目录无效，请先到「关于」页设置正确的游戏目录"}
-    if not DMF_PAYLOAD_DIR.is_dir():
-        return {"ok": False, "error": "内置 DMF 组件缺失（打包不完整），请重新下载管理器"}
-    if is_game_running():
-        return {"ok": False, "error": "游戏正在运行，请先关闭游戏再安装 DMF"}
-
-    # 兼容：FastAPI 路由调用（body=None 或缺省）与测试直接调用（无参）
+    """一键安装/覆盖更新 DMF（逻辑见 dmf.install_dmf）"""
     force = False
     if body is not None:
         try:
             force = bool(body.force)
         except AttributeError:
             force = False
-    # 1. 释放组件；已有同名文件先备份到 backups\dmf_backup_<时间戳>\
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    bak_root = BACKUP_DIR / f"dmf_backup_{ts}"
-    files = dmf_payload_files()
-    if not files:
-        return {"ok": False, "error": "内置 DMF 组件缺失（打包不完整），请重新下载管理器"}
-    installed, backed = [], []
-    for rel in files:
-        src = DMF_PAYLOAD_DIR / rel
-        dst = GAME_DIR / rel
-        try:
-            if dst.exists():
-                b = bak_root / rel
-                b.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dst, b)
-                backed.append(str(rel))
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            installed.append(str(rel))
-        except Exception as e:
-            return {"ok": False, "error": f"释放 {rel} 失败: {e}"}
-
-    # 2. 恢复自动装载插件（清除 .off 残留 + 管理器禁用标记）
-    off = GAME_DIR / AUTOPATCH_DLL_OFF
-    if off.exists():
-        try:
-            off.unlink()
-        except Exception:
-            pass
-    set_auto_patch_disabled(False)
-
-    # 3. 打补丁激活 mods
-    act = "覆盖更新" if force else "安装"
-    msg = f"✓ DMF {act}完成（{len(installed)} 个组件）"
-    if installed:
-        r = _run_patch("--patch")
-        if r.get("patched"):
-            msg += "，补丁已激活，mods 已就绪"
-        else:
-            msg += f"，但补丁未打上：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
-    pruned = prune_backups()
-    if pruned:
-        msg += f"（已清理 {len(pruned)} 个旧备份）"
-    return {"ok": True, "message": msg, "components_installed": installed, "backed_up": backed, **dmf_state()}
+    return install_dmf(force)
 
 
 class GameDirBody(BaseModel):
     path: str
 
 
-# ---------------------------------------------------------------- 整合包导入
-
 PACK_BAK_PREFIX = "pack_import_"
-
-
-def is_pack_root(p: Path) -> bool:
-    """判断目录是否是整合包根（mods/ 或 binaries/mod_loader 或 bundle/*.patch_999）"""
-    if (p / "mods").is_dir():
-        return True
-    if (p / "binaries" / "mod_loader").is_file():
-        return True
-    b = p / "bundle"
-    if b.is_dir() and list(b.glob("*.patch_999")):
-        return True
-    return False
-
-
-def locate_pack_root(out: Path) -> Path:
-    """整合包解压根：若只套了一层目录且其下是游戏结构，则进入该层"""
-    subs = [d for d in out.iterdir() if d.is_dir()]
-    files = [f for f in out.iterdir() if f.is_file()]
-    if not files and len(subs) == 1 and is_pack_root(subs[0]):
-        return subs[0]
-    return out
-
-
-def classify_archive(out: Path) -> str:
-    """分类压缩包内容：'mod'（单个 mod）| 'pack'（整合包）| 'ambiguous'（模棱两可，需用户确认）
-    整合包判定：mods/ 带系统组件/加载器/清单，或多于 1 个 mod 文件夹。
-    只有一个 mod 文件夹且无清单 → ambiguous（可能是单 mod 的 mods/ 包裹，也可能是精简整合包）。"""
-    root = locate_pack_root(out)
-    if not is_pack_root(root):
-        return "mod"
-    mods_dir = root / "mods"
-    if mods_dir.is_dir():
-        mod_folders = [d for d in mods_dir.iterdir() if d.is_dir()]
-        # 带系统组件或加载器文件 → 肯定是整合包
-        if (mods_dir / "base").is_dir() or (mods_dir / "dmf").is_dir():
-            return "pack"
-        if (root / "binaries" / "mod_loader").is_file():
-            return "pack"
-        if (root / "bundle").is_dir() and list((root / "bundle").glob("*.patch_999")):
-            return "pack"
-        # 只有 1 个 mod 文件夹：带启停清单 → 整合包；否则模棱两可（防呆：让用户确认）
-        if len(mod_folders) <= 1:
-            if (mods_dir / "mod_load_order.txt").is_file():
-                return "pack"
-            return "ambiguous"
-    return "pack"
-
-
-def is_pack_like(out: Path) -> bool:
-    """宽松判定：像整合包（用于 mod 导入时自动转整合包流程）。
-    排除"mods/ 下只有一个 mod"的单 mod 包裹结构，避免误判。"""
-    return classify_archive(out) == "pack"
-
-
-def _bak_path(dst: Path, ts: str) -> Path:
-    """生成不冲突的备份路径"""
-    bak = dst.with_name(f"{dst.name}.bak_{ts}")
-    i = 2
-    while bak.exists():
-        bak = dst.with_name(f"{dst.name}.bak_{ts}_{i}")
-        i += 1
-    return bak
-
-
-def _scan_mods_dir(mods_root: Path) -> dict:
-    """扫描一个 mods 目录：{mod名: 版本}（排除系统组件/备份残留）"""
-    result = {}
-    if not mods_root.is_dir():
-        return result
-    for d in sorted(mods_root.iterdir()):
-        if not d.is_dir() or d.name in SYSTEM_MODS or ".bak_" in d.name:
-            continue
-        ver = ""
-        for f in d.glob("*.mod"):
-            m = re.search(r'version\s*=\s*"([^"]+)"', f.read_text(encoding="utf-8", errors="ignore"))
-            if m:
-                ver = m.group(1)
-                break
-        result[d.name] = ver
-    return result
-
-
-def diff_mods(pack_mods: dict, cur_mods: dict) -> dict:
-    """对比两套 mods：新增/移除/更新/相同"""
-    added = [n for n in pack_mods if n not in cur_mods]
-    removed = [n for n in cur_mods if n not in pack_mods]
-    updated = [n for n in pack_mods if n in cur_mods and pack_mods[n] and pack_mods[n] != cur_mods[n]]
-    same = [n for n in pack_mods if n in cur_mods and n not in updated]
-    return {"added": added, "removed": removed, "updated": updated, "same": same}
-
-
-def preview_pack_archive(filename: str, data: bytes) -> dict:
-    """只读预览整合包：解压后对比当前 mods，返回新增/移除/更新/相同（不写任何文件）。"""
-    if not MODS_DIR.is_dir():
-        return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
-    with tempfile.TemporaryDirectory() as td:
-        out = Path(td) / "out"
-        out.mkdir()
-        err = extract_archive(data, filename, out)
-        if err:
-            return {"file": filename, "ok": False, "error": err}
-        root = locate_pack_root(out)
-        if not is_pack_like(out):
-            return {"file": filename, "ok": False,
-                    "error": "压缩包内没有 mods/ 或加载器文件，不是暗潮整合包（单个 mod 请用「导入 mod」）"}
-
-        src_mods = root / "mods"
-        pack_mods = _scan_mods_dir(src_mods) if src_mods.is_dir() else {}
-
-        # 当前 mods
-        cur_mods = _scan_mods_dir(MODS_DIR)
-
-        diff = diff_mods(pack_mods, cur_mods)
-        added, removed, updated, same = diff["added"], diff["removed"], diff["updated"], diff["same"]
-
-        # 包内清单信息
-        has_load_order = (src_mods / "mod_load_order.txt").is_file()
-        pack_lo_count = 0
-        if has_load_order:
-            try:
-                pack_lo_count = sum(
-                    1 for ln in (src_mods / "mod_load_order.txt").read_text(encoding="utf-8", errors="ignore").splitlines()
-                    if ln.strip() and not ln.strip().startswith("--"))
-            except Exception:
-                pass
-
-        return {
-            "file": filename,
-            "ok": True,
-            "is_pack": True,
-            "added": added,
-            "removed": removed,
-            "updated": updated,
-            "same": same,
-            "pack_count": len(pack_mods),
-            "cur_count": len(cur_mods),
-            "has_load_order": has_load_order,
-            "pack_lo_count": pack_lo_count,
-        }
 
 
 class PackPreviewBody(BaseModel):
@@ -1249,7 +434,6 @@ class PackPreviewBody(BaseModel):
     data_b64: str = ""  # 压缩包 base64（前端读取后传入）
 
 
-@app.post("/api/pack/preview")
 def api_pack_preview(body: PackPreviewBody):
     """导入整合包前的差异预览（只读，不写文件）"""
     g = guard_game_running("预览整合包")
@@ -1265,152 +449,13 @@ def api_pack_preview(body: PackPreviewBody):
     return preview_pack_archive(body.filename or "pack.zip", data)
 
 
-def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> dict:
-    """导入整合包：解压 -> 定位根 -> 备份 -> 合并（replace 先归档旧 mods）-> 返回统计
-    mode=replace：旧 mods 整体归档到 backups/pack_backup_<ts>/mods/，mods 始终保持当前包
-    mode=merge：增量叠加（同名覆盖备份）"""
-    if not is_valid_game_dir(GAME_DIR):
-        return {"file": filename, "ok": False, "error": "游戏目录无效，请先到「关于」页设置"}
-    with tempfile.TemporaryDirectory() as td:
-        out = Path(td) / "out"
-        out.mkdir()
-        err = extract_archive(data, filename, out)
-        if err:
-            return {"file": filename, "ok": False, "error": err}
-        root = locate_pack_root(out)
-        if not is_pack_like(out):
-            return {"file": filename, "ok": False,
-                    "error": "压缩包内没有 mods/ 或加载器文件，不是暗潮整合包（单个 mod 请用「导入 mod」）"}
-
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        added, replaced, root_files = [], [], []
-        archived = []
-        MODS_DIR.mkdir(parents=True, exist_ok=True)
-
-        # 0. replace 模式：先把现有 mods 整体归档；base/dmf 仅当新包也带同名时才归档
-        #    （新包没带则保留旧的，保证框架不缺失）；归档备份统一进 BACKUP_DIR
-        if mode == "replace":
-            src_mods0 = root / "mods"
-            pack_has = {d.name for d in src_mods0.iterdir() if d.is_dir()} if src_mods0.is_dir() else set()
-            bak_mods = BACKUP_DIR / f"pack_backup_{ts}" / "mods"
-            bak_mods.mkdir(parents=True, exist_ok=True)
-            for item in sorted(MODS_DIR.iterdir()):
-                if item.is_dir() and item.name in SYSTEM_MODS:
-                    if item.name not in pack_has:
-                        continue  # 新包没有该系统组件，保留旧的
-                try:
-                    shutil.move(str(item), str(bak_mods / item.name))
-                    archived.append(item.name)
-                except Exception as e:
-                    return {"file": filename, "ok": False, "error": f"归档 {item.name} 失败: {e}"}
-
-        # 1. mods/ 增量合并（跳过 mod_load_order.txt，后面单独处理）
-        src_mods = root / "mods"
-        for d in sorted(src_mods.iterdir()) if src_mods.is_dir() else []:
-            if not d.is_dir():
-                continue
-            if d.name.lower() == "mod_load_order.txt":
-                continue
-            target = MODS_DIR / d.name
-            if target.exists():
-                target.rename(_bak_path(target, ts))
-                replaced.append(d.name)
-            try:
-                shutil.copytree(d, target)
-            except Exception as e:
-                return {"file": filename, "ok": False, "error": f"拷贝 mod {d.name} 失败: {e}"}
-            added.append(d.name)
-
-        # 2. mods/mod_load_order.txt：用整合包作者的推荐清单（先备份现有）
-        lo_src = src_mods / "mod_load_order.txt"
-        if lo_src.is_file():
-            lo_dst = MODS_DIR / "mod_load_order.txt"
-            if lo_dst.exists():
-                b = BACKUP_DIR / f"pack_backup_{ts}" / "mods" / lo_dst.name
-                b.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(lo_dst), str(b))
-            shutil.copy2(lo_src, lo_dst)
-
-        # 3. 加载器相关文件：tools/ 散文件、binaries/mod_loader、bundle/*.patch_999
-        #    冲突备份统一进 BACKUP_DIR（不在游戏目录留 .bak_ 文件）
-        comp_files = []
-        tools_src = root / "tools"
-        if tools_src.is_dir():
-            for f in tools_src.iterdir():
-                if f.is_file():
-                    comp_files.append((f, GAME_DIR / "tools" / f.name))
-        for rel in ("binaries/mod_loader",):
-            s = root / rel
-            if s.is_file():
-                comp_files.append((s, GAME_DIR / rel))
-        b_src = root / "bundle"
-        if b_src.is_dir():
-            for f in b_src.glob("*.patch_999"):
-                comp_files.append((f, GAME_DIR / "bundle" / f.name))
-        comp_bak = BACKUP_DIR / f"pack_backup_{ts}" / "loader"
-        for src, dst in comp_files:
-            if dst.exists():
-                b = comp_bak / src.name
-                b.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(dst), str(b))
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
-            root_files.append(dst.name)
-
-        # 4. 根目录散文件（.bat/.txt/.md 教程/脚本）不再导入——避免反复装包堆积重复文件；
-        #    replace 模式下顺带把根目录已有的散文件归档（排除 mod_load_order.txt 参考副本和 steam_appid.txt）
-        archived_root = []
-        if mode == "replace":
-            root_bak = BACKUP_DIR / f"root_cleanup_{ts}"
-            for f in GAME_DIR.iterdir():
-                if not f.is_file() or f.suffix.lower() not in (".bat", ".txt", ".md"):
-                    continue
-                if f.name.lower() in ("mod_load_order.txt", "steam_appid.txt"):
-                    continue
-                try:
-                    b = root_bak / f.name
-                    b.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(f), str(b))
-                    archived_root.append(f.name)
-                except Exception as e:
-                    return {"file": filename, "ok": False, "error": f"归档根目录文件 {f.name} 失败: {e}"}
-
-        # 5. 打补丁激活 mods（游戏关闭时）
-        msg = f"✓ 整合包导入完成：新增/更新 {len(added)} 个 mod"
-        if mode == "replace":
-            msg = f"✓ 整合包已生效：{len(added)} 个 mod 就绪"
-            if archived:
-                msg += f"（原 {len(archived)} 个旧 mod 已归档到 backups/pack_backup_{ts}/，可随时找回）"
-            if archived_root:
-                msg += f"，根目录 {len(archived_root)} 个说明/脚本文件已归档（backups/root_cleanup_{ts}/）"
-        else:
-            if replaced:
-                msg += f"（覆盖 {len(replaced)} 个，旧版已备份）"
-        if root_files:
-            msg += f"，加载器/工具文件 {len(root_files)} 个"
-        if is_game_running():
-            msg += "；游戏运行中，退出后会自动补打补丁"
-        else:
-            r = _run_patch("--patch")
-            if r.get("patched"):
-                msg += "，补丁已激活，mods 已就绪"
-            else:
-                msg += f"，但补丁未打上：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
-        pruned = prune_backups()
-        if pruned:
-            msg += f"（已清理 {len(pruned)} 个旧备份）"
-        return {"file": filename, "ok": True, "message": msg,
-                "mods": added, "replaced": replaced, "archived": archived,
-                "root_files": root_files, "load_order": lo_src.is_file(), "mode": mode}
-
-
 @app.post("/api/pack/import")
 async def api_pack_import(files: list[UploadFile] = File(...),
                           mode: str = Form("replace")):
     """整合包导入：mode=replace（默认，整体替换）| merge（叠加）"""
     if mode not in ("replace", "merge"):
         mode = "replace"
-    if not is_valid_game_dir(GAME_DIR):
+    if not is_valid_game_dir(state.GAME_DIR):
         return {"ok": False, "results": [], "error": "未设置正确的游戏目录"}
     g = guard_game_running("导入整合包")
     if g:
@@ -1428,27 +473,19 @@ async def api_pack_import(files: list[UploadFile] = File(...),
 
 # ---------------------------------------------------------------- 归档备份管理
 
-def _fmt_ts(ts: str) -> str:
-    """时间戳 20260814_235000 → 2026-08-14 23:50（解析失败原样返回）"""
-    try:
-        return datetime.strptime(ts, "%Y%m%d_%H%M%S").strftime("%Y-%m-%d %H:%M")
-    except Exception:
-        return ts
-
-
 @app.post("/api/backups/{bid}/preview")
 def api_backup_preview(bid: str):
     """备份恢复前的差异预览（只读）：备份内 mods vs 当前 mods"""
-    if not is_valid_game_dir(GAME_DIR):
+    if not is_valid_game_dir(state.GAME_DIR):
         return {"ok": False, "error": "游戏目录无效，请先到「关于」页设置"}
     g = guard_game_running("预览备份")
     if g:
         return g
-    src = BACKUP_DIR / bid / "mods"
+    src = state.BACKUP_DIR / bid / "mods"
     if not src.is_dir():
         return {"ok": False, "error": "备份不存在或不是整合包归档"}
     bak_mods = _scan_mods_dir(src)
-    cur_mods = _scan_mods_dir(MODS_DIR)
+    cur_mods = _scan_mods_dir(state.MODS_DIR)
     diff = diff_mods(bak_mods, cur_mods)
     return {
         "ok": True,
@@ -1462,68 +499,13 @@ def api_backup_preview(bid: str):
 
 
 # 备份保留策略：单类最多保留份数 / backups 总大小上限（字节）
-BACKUP_MAX_PER_TYPE = 10
-BACKUP_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024  # 5GB
-
-
-def prune_backups():
-    """备份清理：
-    1. 单类上限：pack_backup_/dmf_backup_ 各保留最近 BACKUP_MAX_PER_TYPE 份；
-    2. 总量上限：backups 总大小超 BACKUP_MAX_TOTAL_BYTES 时从最旧开始删，直到达标。
-    返回删除的条目列表。"""
-    if not BACKUP_DIR.is_dir():
-        return []
-    removed = []
-
-    # 1. 单类数量上限（pack / dmf 目录类）
-    for prefix in ("pack_backup_", "dmf_backup_"):
-        dirs = sorted((d for d in BACKUP_DIR.iterdir() if d.is_dir() and d.name.startswith(prefix)),
-                      key=lambda d: d.name)
-        for old in dirs[:-BACKUP_MAX_PER_TYPE]:
-            try:
-                shutil.rmtree(old, ignore_errors=True)
-                removed.append(old.name)
-            except Exception:
-                pass
-
-    # 2. 总量上限（含清单散文件）
-    def _dir_size(p: Path) -> int:
-        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
-
-    # 收集所有备份条目（目录 + 清单散文件），按名称排序（旧在前）
-    entries = []
-    for d in BACKUP_DIR.iterdir():
-        if d.is_dir() and (d.name.startswith("pack_backup_") or d.name.startswith("dmf_backup_")):
-            entries.append((d.name, _dir_size(d)))
-        elif d.is_file() and d.name.startswith("mod_load_order.") and d.name.endswith(".bak"):
-            entries.append((d.name, d.stat().st_size))
-    entries.sort(key=lambda x: x[0])
-
-    total = sum(sz for _, sz in entries)
-    for name, sz in entries:
-        if total <= BACKUP_MAX_TOTAL_BYTES:
-            break
-        target = BACKUP_DIR / name
-        try:
-            if target.is_dir():
-                shutil.rmtree(target, ignore_errors=True)
-            else:
-                target.unlink(missing_ok=True)
-            total -= sz
-            removed.append(name)
-        except Exception:
-            pass
-
-    return removed
-
-
 @app.get("/api/backups")
 def api_backups():
     """列出归档备份：整合包归档 pack_backup_*、DMF 组件备份 dmf_backup_*、清单备份 mod_load_order.*.bak"""
-    if not BACKUP_DIR.is_dir():
+    if not state.BACKUP_DIR.is_dir():
         return {"backups": []}
     backups = []
-    for d in sorted(BACKUP_DIR.iterdir(), reverse=True):
+    for d in sorted(state.BACKUP_DIR.iterdir(), reverse=True):
         if not d.is_dir():
             continue
         if d.name.startswith("pack_backup_"):
@@ -1555,7 +537,7 @@ def api_backups():
                 "count": len(files),
             })
     # 清单备份（散文件 mod_load_order.<ts>.bak）
-    for f in sorted(BACKUP_DIR.glob("mod_load_order.*.bak"), reverse=True):
+    for f in sorted(state.BACKUP_DIR.glob("mod_load_order.*.bak"), reverse=True):
         ts = f.stem[len("mod_load_order."):]
         backups.append({
             "id": f.name, "type": "load_order",
@@ -1568,17 +550,17 @@ def api_backups():
 @app.post("/api/backups/{bid}/restore")
 def api_backup_restore(bid: str):
     """恢复备份：pack=整合包归档（当前 mods 先归档再换回），load_order=清单备份（当前清单先备份再覆盖）"""
-    if not is_valid_game_dir(GAME_DIR):
+    if not is_valid_game_dir(state.GAME_DIR):
         return {"ok": False, "error": "游戏目录无效，请先到「关于」页设置"}
     if is_game_running():
         return {"ok": False, "error": "游戏正在运行，请先关闭游戏再恢复"}
 
     # 清单备份恢复：mod_load_order.<ts>.bak -> mod_load_order.txt（当前先备份）
     if bid.startswith("mod_load_order.") and bid.endswith(".bak"):
-        bak_file = BACKUP_DIR / bid
+        bak_file = state.BACKUP_DIR / bid
         if not bak_file.is_file():
             return {"ok": False, "error": "备份不存在"}
-        if not MODS_DIR.is_dir():
+        if not state.MODS_DIR.is_dir():
             return {"ok": False, "error": "mods 目录不存在"}
         # 先读内容再备份当前（避免 backup_load_order 的保留 10 份逻辑误删目标）
         try:
@@ -1587,22 +569,22 @@ def api_backup_restore(bid: str):
             return {"ok": False, "error": f"读取备份失败: {e}"}
         backup_load_order()  # 当前清单先备份
         try:
-            LOAD_ORDER_FILE.write_text(content, encoding="utf-8")
+            state.LOAD_ORDER_FILE.write_text(content, encoding="utf-8")
         except Exception as e:
             return {"ok": False, "error": f"恢复失败: {e}"}
         return {"ok": True, "message": f"✓ 已恢复清单备份 {bid}（当前清单已备份）"}
 
-    src = BACKUP_DIR / bid / "mods"
+    src = state.BACKUP_DIR / bid / "mods"
     if not src.is_dir():
         return {"ok": False, "error": "备份不存在或不是整合包归档"}
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     # 1. 当前 mods 先归档（防误操作丢状态）
-    MODS_DIR.mkdir(parents=True, exist_ok=True)
-    cur_bak = BACKUP_DIR / f"pack_backup_{ts}" / "mods"
+    state.MODS_DIR.mkdir(parents=True, exist_ok=True)
+    cur_bak = state.BACKUP_DIR / f"pack_backup_{ts}" / "mods"
     cur_bak.mkdir(parents=True, exist_ok=True)
     archived = []
-    for item in sorted(MODS_DIR.iterdir()):
+    for item in sorted(state.MODS_DIR.iterdir()):
         if item.is_dir() and item.name in SYSTEM_MODS:
             continue
         try:
@@ -1610,12 +592,12 @@ def api_backup_restore(bid: str):
             archived.append(item.name)
         except Exception as e:
             return {"ok": False, "error": f"归档当前 mods 失败: {e}"}
-    # 2. 恢复备份内容（冲突文件备份进 BACKUP_DIR，不在游戏目录留 .bak_）
+    # 2. 恢复备份内容（冲突文件备份进 state.BACKUP_DIR，不在游戏目录留 .bak_）
     restored = []
     for item in sorted(src.iterdir()):
-        target = MODS_DIR / item.name
+        target = state.MODS_DIR / item.name
         if target.exists():
-            b = BACKUP_DIR / f"pack_backup_{ts}" / "mods" / item.name
+            b = state.BACKUP_DIR / f"pack_backup_{ts}" / "mods" / item.name
             b.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(target), str(b))
         if item.is_dir():
@@ -1642,7 +624,7 @@ def api_backup_restore(bid: str):
 @app.delete("/api/backups/{bid}")
 def api_backup_delete(bid: str):
     """删除归档备份（目录或清单散文件）"""
-    d = BACKUP_DIR / bid
+    d = state.BACKUP_DIR / bid
     if d.is_dir():
         if not (bid.startswith("pack_backup_") or bid.startswith("dmf_backup_")):
             return {"ok": False, "error": "备份不存在"}
@@ -1661,103 +643,39 @@ class ExportBody(BaseModel):
 
 @app.post("/api/export")
 def api_export(body: ExportBody):
-    """导出为整合包 zip（不含系统组件 base/dmf）：
-    mode=all：打包全部 mod，清单列全部；
-    mode=enabled：只打包启用的 mod，清单只列启用的；
-    mode=load_order：不打包 mod，只生成干净的 mod_load_order.txt（当前启用的 mod，按顺序）。
-    产出可直接再「导入整合包」（自产自销闭环），保存到 exe 旁 exports/ 目录。"""
+    """导出为整合包 zip（逻辑见 imports.export_pack）"""
     g = guard_game_running("导出整合包")
     if g:
         return g
-    if not MODS_DIR.is_dir():
-        return {"ok": False, "error": "mods 目录不存在，无法导出"}
+    return export_pack(body.name, body.mode)
 
-    mode = body.mode if body.mode in ("all", "enabled", "load_order") else "all"
-    # 收集 mod 文件夹（排除系统组件）
-    all_dirs = sorted(
-        (d for d in MODS_DIR.iterdir() if d.is_dir() and d.name not in SYSTEM_MODS),
-        key=lambda d: d.name.lower())
-    if not all_dirs:
-        return {"ok": False, "error": "mods 目录下没有可导出的 mod"}
-
-    enabled_set = set(enabled_names(read_load_order()))
-
-    # 按模式筛选
-    if mode == "enabled":
-        mod_dirs = [d for d in all_dirs if d.name in enabled_set]
-        if not mod_dirs:
-            return {"ok": False, "error": "当前没有启用中的 mod，无法按启用导出"}
-    else:
-        mod_dirs = all_dirs
-
-    # 包名
-    name = re.sub(r'[\\/:*?"<>|]', "_", (body.name or "").strip())
-    if not name:
-        name = f"整合包_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
-    # 导出目录
-    export_dir = BASE_DIR / "exports"
-    export_dir.mkdir(exist_ok=True)
-
-    if mode == "load_order":
-        # 仅导出干净清单：只列当前启用中的 mod（按当前顺序），无注释/无禁用行
-        dir_names = {d.name for d in all_dirs}
-        ordered = [n for n in enabled_names(read_load_order()) if n in dir_names]
-        if not ordered:
-            return {"ok": False, "error": "当前没有启用中的 mod，无法导出清单"}
-        out_path = export_dir / f"mod_load_order_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        try:
-            out_path.write_text("\n".join(ordered) + "\n", encoding="utf-8")
-        except Exception as e:
-            return {"ok": False, "error": f"导出失败: {e}"}
-        return {
-            "ok": True,
-            "message": f"✓ 已导出干净清单（{len(ordered)} 个启用 mod）",
-            "path": str(out_path),
-            "count": len(ordered),
-            "mode": mode,
-        }
-
-    out_path = export_dir / f"{name}.zip"
-
-    try:
-        with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:
-            # mods/ 下每个 mod 文件夹
-            for d in mod_dirs:
-                for f in sorted(d.rglob("*")):
-                    if f.is_file():
-                        z.write(f, f"mods/{d.name}/{f.relative_to(d)}")
-            # 启停清单：all=全部 mod（按目录序），enabled=只列启用的（按当前顺序）
-            ordered = [d.name for d in mod_dirs]
-            if ordered:
-                z.writestr("mods/mod_load_order.txt", "\n".join(ordered) + "\n")
-    except Exception as e:
-        return {"ok": False, "error": f"导出失败: {e}"}
-
-    return {
-        "ok": True,
-        "message": f"✓ 已导出 {len(mod_dirs)} 个 mod 到 {out_path.name}",
-        "path": str(out_path),
-        "count": len(mod_dirs),
-        "mode": mode,
-    }
-
-
-@app.post("/api/settings/game_dir")
 def api_set_game_dir(body: GameDirBody):
-    """手动设置游戏目录（写入 config.json，重启后生效）"""
+    """手动设置游戏目录（保存并立即生效）"""
+    g = guard_game_running("切换游戏目录")
+    if g:
+        return g
     p = Path(body.path.strip().strip('\"'))
     if not p.is_dir():
         return {"ok": False, "error": "目录不存在"}
     if not is_valid_game_dir(p):
         return {"ok": False, "error": "该目录不是暗潮游戏目录（需包含 mods 或 bundle 文件夹）"}
-    cfg = load_config()
-    cfg["game_dir"] = str(p)
-    try:
-        CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception as e:
-        return {"ok": False, "error": f"写入配置失败: {e}"}
-    return {"ok": True, "path": str(p), "restart_required": True}
+    if not apply_game_dir(p):
+        return {"ok": False, "error": "写入配置失败"}
+    return {"ok": True, "path": str(p), "restart_required": False}
+
+
+@app.post("/api/game_dir/detect")
+def api_detect_game_dir():
+    """自动扫描 Steam 库识别游戏目录并保存（手动识别按钮，立即生效）"""
+    g = guard_game_running("切换游戏目录")
+    if g:
+        return g
+    p = detect_game_dir()
+    if p is None or not is_valid_game_dir(p):
+        return {"ok": False, "error": "未在 Steam 库中找到暗潮游戏目录，请改用「选择文件夹」手动指定"}
+    if not apply_game_dir(p):
+        return {"ok": False, "error": "写入配置失败"}
+    return {"ok": True, "path": str(p), "restart_required": False}
 
 
 @app.get("/api/mods")
@@ -1847,12 +765,12 @@ def api_deps_check():
 @app.post("/api/mods/{name}/open_folder")
 def api_open_folder(name: str):
     """在资源管理器中打开 mod 文件夹（右键菜单用）"""
-    if not MODS_DIR.is_dir():
+    if not state.MODS_DIR.is_dir():
         return {"ok": False, "error": "mods 目录不存在"}
     safe = Path(name).name  # 防路径穿越
     if safe in ("", "null", "undefined"):
         return {"ok": False, "error": "mod 名称无效，请重新右键后重试"}
-    target = MODS_DIR / safe
+    target = state.MODS_DIR / safe
     if not target.is_dir():
         return {"ok": False, "error": "mod 文件夹不存在（可能是清单残留）"}
     try:
@@ -1864,6 +782,60 @@ def api_open_folder(name: str):
 
 class NoteBody(BaseModel):
     note: str
+
+
+# ---------------------------------------------------------------- 崩溃日志
+
+CRASH_ROOT = Path(os.environ.get("APPDATA", "")) / "Fatshark" / "Darktide"
+
+
+def _latest_log_file(d: Path):
+    """目录内最新文件 {name,time}；目录不存在或为空返回 None"""
+    if not d.is_dir():
+        return None
+    files = [f for f in d.iterdir() if f.is_file()]
+    if not files:
+        return None
+    newest = max(files, key=lambda f: f.stat().st_mtime)
+    return {
+        "name": newest.name,
+        "time": datetime.fromtimestamp(newest.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+    }
+
+
+@app.get("/api/crash_logs")
+def api_crash_logs():
+    """崩溃排查信息：console_logs（教程说的控制台文本日志）+ crash_dumps 最新文件"""
+    if not CRASH_ROOT.is_dir():
+        return {"ok": False, "error": "未找到 Fatshark 游戏日志目录（%APPDATA%\\Fatshark\\Darktide）"}
+    return {
+        "ok": True,
+        "dir": str(CRASH_ROOT),
+        "console": _latest_log_file(CRASH_ROOT / "console_logs"),  # 控制台日志（文本，可直接看报错）
+        "latest": _latest_log_file(CRASH_ROOT / "crash_dumps"),    # 崩溃转储（.dmp 二进制）
+    }
+
+
+@app.post("/api/crash_logs/open")
+def api_crash_logs_open():
+    """打开排查日志目录：优先 console_logs（文本控制台日志），其次 crash_dumps，最后根目录"""
+    if not CRASH_ROOT.is_dir():
+        return {"ok": False, "error": "未找到 Fatshark 游戏日志目录"}
+    for name in ("console_logs", "crash_dumps"):
+        target = CRASH_ROOT / name
+        if not target.is_dir():
+            continue
+        try:
+            os.startfile(str(target))  # type: ignore[attr-defined]
+            hint = "（文本日志，可直接用记事本打开看报错）" if name == "console_logs" else "（.dmp 二进制转储，需专业工具分析）"
+            return {"ok": True, "message": f"已打开 {name} 目录 {hint}"}
+        except Exception as e:
+            return {"ok": False, "error": f"打开失败: {e}"}
+    try:
+        os.startfile(str(CRASH_ROOT))
+        return {"ok": True, "message": "已打开 Fatshark 游戏日志目录"}
+    except Exception as e:
+        return {"ok": False, "error": f"打开失败: {e}"}
 
 
 class UrlBody(BaseModel):
@@ -1886,7 +858,7 @@ def api_open_url(body: UrlBody):
 @app.post("/api/export/open_folder")
 def api_export_open_folder():
     """打开导出目录（exports/）"""
-    d = BASE_DIR / "exports"
+    d = state.BASE_DIR / "exports"
     if not d.is_dir():
         return {"ok": False, "error": "导出目录不存在（还没导出过）"}
     try:
@@ -1916,7 +888,7 @@ def api_load_order_preview(body: LoadOrderPreviewBody):
     # 解析目标清单内容
     target_lines = []
     if body.source.startswith("backup:"):
-        bak = BACKUP_DIR / body.source[len("backup:"):]
+        bak = state.BACKUP_DIR / body.source[len("backup:"):]
         if not bak.is_file() or not body.source.endswith(".bak"):
             return {"ok": False, "error": "清单备份不存在"}
         try:
@@ -1975,7 +947,7 @@ def api_load_order_import(body: LoadOrderImportBody):
     g = guard_game_running("导入清单")
     if g:
         return g
-    if not MODS_DIR.is_dir():
+    if not state.MODS_DIR.is_dir():
         return {"ok": False, "error": "mods 目录不存在"}
     content = (body.content or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = [ln.strip() for ln in content.split("\n")]
@@ -1992,7 +964,7 @@ def api_load_order_import(body: LoadOrderImportBody):
         return {"ok": False, "error": "清单内容为空或无效"}
     backup_load_order()
     try:
-        LOAD_ORDER_FILE.write_text("\n".join(keep) + "\n", encoding="utf-8")
+        state.LOAD_ORDER_FILE.write_text("\n".join(keep) + "\n", encoding="utf-8")
     except Exception as e:
         return {"ok": False, "error": f"写入失败: {e}"}
     return {"ok": True, "message": f"✓ 已导入清单（{len(keep)} 行），旧清单已备份"}
@@ -2052,7 +1024,7 @@ def send_to_trash(path: Path) -> bool:
 @app.delete("/api/mods/{name}")
 def api_delete_mod(name: str):
     """彻底删除 mod：文件夹移入回收站 + 从启停清单移除（系统组件 base/dmf 不可删）"""
-    if not MODS_DIR.is_dir():
+    if not state.MODS_DIR.is_dir():
         return {"ok": False, "error": "mods 目录不存在"}
     g = guard_game_running("删除 mod")
     if g:
@@ -2062,7 +1034,7 @@ def api_delete_mod(name: str):
         return {"ok": False, "error": "mod 名称无效"}
     if safe in SYSTEM_MODS:
         return {"ok": False, "error": f"{safe} 是系统组件（DMF 框架），不可删除"}
-    target = MODS_DIR / safe
+    target = state.MODS_DIR / safe
     if not target.is_dir():
         return {"ok": False, "error": "mod 文件夹不存在（可用右键「从清单移除」清理残留）"}
     # 1. 从清单移除（含禁用注释行）
@@ -2225,15 +1197,15 @@ def profile_path(name: str) -> Path:
     safe = re.sub(r'[\\/:*?"<>|]', "_", name.strip())
     if not safe:
         raise HTTPException(400, "预设名不能为空")
-    return PROFILES_DIR / f"{safe}.json"
+    return state.PROFILES_DIR / f"{safe}.json"
 
 
 @app.get("/api/profiles")
 def api_profiles():
-    if not PROFILES_DIR.is_dir():
+    if not state.PROFILES_DIR.is_dir():
         return {"profiles": []}
     profiles = []
-    for f in sorted(PROFILES_DIR.glob("*.json")):
+    for f in sorted(state.PROFILES_DIR.glob("*.json")):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             profiles.append({
@@ -2255,7 +1227,7 @@ class ProfileBody(BaseModel):
 def api_profile_save(body: ProfileBody):
     entries = read_load_order()
     mods = enabled_names(entries)
-    PROFILES_DIR.mkdir(exist_ok=True)
+    state.PROFILES_DIR.mkdir(exist_ok=True)
     data = {"name": body.name.strip(), "mods": mods, "created": datetime.now().isoformat(timespec="seconds")}
     profile_path(body.name).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True, "profile": data}
@@ -2283,7 +1255,7 @@ def api_profile_delete(name: str):
 @app.get("/")
 def index():
     """返回主页面，并把持久化主题内联进 body 标签，避免启动闪默认色"""
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = (state.STATIC_DIR / "index.html").read_text(encoding="utf-8")
     cfg = load_config()
     theme = cfg.get("theme", "abyss")
     grad = cfg.get("grad", "diag")
@@ -2319,8 +1291,8 @@ if __name__ == "__main__":
                         help="用浏览器打开而不是独立窗口 (默认独立窗口)")
     args = parser.parse_args()
 
-    PROFILES_DIR.mkdir(exist_ok=True)
-    BACKUP_DIR.mkdir(exist_ok=True)
+    state.PROFILES_DIR.mkdir(exist_ok=True)
+    state.BACKUP_DIR.mkdir(exist_ok=True)
 
     # 日志写文件（--windowed 无控制台时也能排错）
     LOG_CONFIG = {
@@ -2329,7 +1301,7 @@ if __name__ == "__main__":
         "formatters": {"f": {"format": "%(asctime)s %(levelname)s %(message)s"}},
         "handlers": {"file": {
             "class": "logging.FileHandler",
-            "filename": str(BASE_DIR / "app.log"),
+            "filename": str(state.BASE_DIR / "app.log"),
             "encoding": "utf-8",
             "formatter": "f",
         }},
@@ -2348,8 +1320,8 @@ if __name__ == "__main__":
     port = args.port if args.port else find_free_port()
 
     logging.getLogger().info(
-        f"启动 | 游戏目录={GAME_DIR} (valid={is_valid_game_dir(GAME_DIR)}) | "
-        f"端口={port} | 预设={PROFILES_DIR}")
+        f"启动 | 游戏目录={state.GAME_DIR} (valid={is_valid_game_dir(state.GAME_DIR)}) | "
+        f"端口={port} | 预设={state.PROFILES_DIR}")
 
     url = f"http://127.0.0.1:{port}"
 
@@ -2386,7 +1358,7 @@ if __name__ == "__main__":
             cfg = load_config()
             cfg["window"] = {"x": x, "y": y, "width": w, "height": h}
             try:
-                CONFIG_FILE.write_text(
+                state.CONFIG_FILE.write_text(
                     json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
             except Exception:
                 pass

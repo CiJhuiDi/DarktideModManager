@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """多格式导入测试：zip / 7z / tar.gz / rar / 未知扩展名"""
 import io
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 import json
 import os
 import subprocess

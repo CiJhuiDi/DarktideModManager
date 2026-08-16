@@ -3,12 +3,17 @@
 import io
 import shutil
 import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
+
 import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import app
+import patch
+import state
 
 ROOT = Path(__file__).resolve().parent
 # 真实整合包样例（可选）：有真实整合包时测试更全面；缺失则自动跳过场景 1/2/7
@@ -27,10 +32,10 @@ def check(name, cond, detail=""):
 
 
 def point_to(mock: Path):
-    app.GAME_DIR = mock.resolve()
-    app.MODS_DIR = app.GAME_DIR / "mods"
-    app.LOAD_ORDER_FILE = app.MODS_DIR / "mod_load_order.txt"
-    app.CONFIG_FILE = mock.resolve() / "config_test.json"
+    state.GAME_DIR = mock.resolve()
+    state.MODS_DIR = state.GAME_DIR / "mods"
+    state.LOAD_ORDER_FILE = state.MODS_DIR / "mod_load_order.txt"
+    state.CONFIG_FILE = mock.resolve() / "config_test.json"
 
 
 def setup_fresh_mock():
@@ -77,19 +82,20 @@ else:
     point_to(MOCK)
     app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
     app.is_game_running = lambda: False
+    patch.is_game_running = lambda: False
     data = SAMPLE.read_bytes()
     r = app.import_pack_archive(SAMPLE.name, data, "replace")
     check("导入返回 ok", r.get("ok") is True, str(r)[:250])
     check("mode=replace", r.get("mode") == "replace")
     check("mods 已填充（>100 个）", len(r.get("mods", [])) > 100, f"{len(r.get('mods', []))} 个")
-    check("base 已导入", (app.MODS_DIR / "base" / "mod_manager.lua").is_file())
-    check("dmf 已导入", (app.MODS_DIR / "dmf" / "dmf.mod").is_file())
-    check("mod_load_order.txt 已替换", (app.MODS_DIR / "mod_load_order.txt").is_file())
-    check("binaries/mod_loader 已导入", (app.GAME_DIR / "binaries" / "mod_loader").is_file())
-    check("bundle patch_999 已导入", bool(list((app.GAME_DIR / "bundle").glob("*.patch_999"))))
+    check("base 已导入", (state.MODS_DIR / "base" / "mod_manager.lua").is_file())
+    check("dmf 已导入", (state.MODS_DIR / "dmf" / "dmf.mod").is_file())
+    check("mod_load_order.txt 已替换", (state.MODS_DIR / "mod_load_order.txt").is_file())
+    check("binaries/mod_loader 已导入", (state.GAME_DIR / "binaries" / "mod_loader").is_file())
+    check("bundle patch_999 已导入", bool(list((state.GAME_DIR / "bundle").glob("*.patch_999"))))
     check("补丁已激活提示", "补丁已激活" in r.get("message", ""), r.get("message", "")[:150])
     # load_order 内容应包含包内清单的 mod（抽查 animation_events 这种常见 mod）
-    lo = (app.MODS_DIR / "mod_load_order.txt").read_text(encoding="utf-8", errors="ignore")
+    lo = (state.MODS_DIR / "mod_load_order.txt").read_text(encoding="utf-8", errors="ignore")
     check("load_order 非空", len(lo.strip()) > 10)
 
     print("\n===== 2. 合并模式（merge）：同名 mod 自动备份 =====")
@@ -101,6 +107,7 @@ else:
     (MOCK / "mods" / "mod_load_order.txt").write_text("-- OLD LOAD ORDER\nanimation_events\n", encoding="utf-8")
     app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
     app.is_game_running = lambda: False
+    patch.is_game_running = lambda: False
     r2 = app.import_pack_archive(SAMPLE.name, SAMPLE.read_bytes(), "merge")
     check("导入 ok", r2.get("ok") is True)
     check("animation_events 被覆盖", "animation_events" in r2.get("replaced", []), str(r2.get("replaced", []))[:150])
@@ -122,9 +129,9 @@ setup_fresh_mock()
 point_to(MOCK)
 r4 = app.import_pack_archive("nested.zip", make_nested_pack())
 check("识别并导入 ok", r4.get("ok") is True, str(r4)[:200])
-check("NestedMod 导入", (app.MODS_DIR / "NestedMod" / "NestedMod.mod").is_file())
-check("mod_loader 导入", (app.GAME_DIR / "binaries" / "mod_loader").is_file())
-check("patch_999 导入", bool(list((app.GAME_DIR / "bundle").glob("*.patch_999"))))
+check("NestedMod 导入", (state.MODS_DIR / "NestedMod" / "NestedMod.mod").is_file())
+check("mod_loader 导入", (state.GAME_DIR / "binaries" / "mod_loader").is_file())
+check("patch_999 导入", bool(list((state.GAME_DIR / "bundle").glob("*.patch_999"))))
 
 print("\n===== 5. bundle_database.data 不导入 =====")
 setup_fresh_mock()
@@ -137,17 +144,19 @@ with zipfile.ZipFile(buf, "w") as z:
     z.writestr("bundle/bundle_database.data", "HACKED_DB")
 r5 = app.import_pack_archive("withdb.zip", buf.getvalue())
 check("导入 ok", r5.get("ok") is True)
-db = (app.GAME_DIR / "bundle" / "bundle_database.data").read_bytes()
+db = (state.GAME_DIR / "bundle" / "bundle_database.data").read_bytes()
 check("数据库未被覆盖（仍为原内容）", db == b"FAKE_DB", db)
 
 print("\n===== 6. 游戏运行中：不打断，提示稍后补丁 =====")
 setup_fresh_mock()
 point_to(MOCK)
 app.is_game_running = lambda: True
+patch.is_game_running = lambda: True
 r6 = app.import_pack_archive("nested.zip", make_nested_pack())
 check("导入 ok", r6.get("ok") is True)
 check("提示游戏运行中", "游戏运行中" in r6.get("message", ""), r6.get("message", "")[:150])
 app.is_game_running = lambda: False
+patch.is_game_running = lambda: False
 
 if not HAVE_SAMPLE:
     print("  SKIP（无样品包，跳过真实整合包场景）")
@@ -163,6 +172,7 @@ else:
     (MOCK / "mods" / "mod_load_order.txt").write_text("TestModA\nTestModB\n", encoding="utf-8")
     app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
     app.is_game_running = lambda: False
+    patch.is_game_running = lambda: False
     r7 = app.import_pack_archive(SAMPLE.name, SAMPLE.read_bytes(), "replace")
     check("导入 ok", r7.get("ok") is True)
     check("旧 mod 被归档", "TestModA" in r7.get("archived", []) and "TestModB" in r7.get("archived", []), str(r7.get("archived", []))[:200])
@@ -181,6 +191,7 @@ setup_fresh_mock()
 point_to(MOCK)
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 app.is_game_running = lambda: False
+patch.is_game_running = lambda: False
 buf = io.BytesIO()
 with zipfile.ZipFile(buf, "w") as z:
     z.writestr("mods/WrappedMod/WrappedMod.mod",
@@ -188,20 +199,25 @@ with zipfile.ZipFile(buf, "w") as z:
     z.writestr("mods/WrappedMod/scripts/mods/WrappedMod/WrappedMod.lua", "-- wrapped")
 r8 = app.import_pack_archive("wrapped.zip", buf.getvalue())
 check("单 mod 包裹被拒绝（不是整合包）", r8.get("ok") is False and "整合包" in r8.get("error", ""), r8.get("error", ""))
-# 而 mod 导入通道能正常处理它
+# 而 mod 导入通道能正常处理它（v0.3.0 起防呆：先返回 ambiguous 待用户确认，force 后导入）
 r8b = app.import_mod_archive("wrapped.zip", buf.getvalue())
-check("mod 导入通道正常导入包裹结构", r8b.get("ok") is True and r8b.get("mod") == "WrappedMod", str(r8b)[:150])
+check("mod 导入通道：包裹结构返回 ambiguous 待确认", r8b.get("ok") is False and r8b.get("ambiguous") is True, str(r8b)[:150])
+r8c = app.import_mod_archive("wrapped.zip", buf.getvalue(), force_mod=True)
+check("mod 导入通道 force 后正常导入", r8c.get("ok") is True and r8c.get("mod") == "WrappedMod", str(r8c)[:150])
 
 print("\n===== 9. 根目录散文件：不再导入，replace 时归档旧的（A+B 方案） =====")
 setup_fresh_mock()
 point_to(MOCK)
 # 预置游戏根目录已有旧包残留（README.md + 参考副本 mod_load_order.txt + tools 工具）
 (MOCK / "README.md").write_text("OLD README", encoding="utf-8")
+(MOCK / "tools").mkdir(parents=True, exist_ok=True)
+(MOCK / "tools" / "dtkit-patch.exe").write_bytes(b"OLD TOOL")
 (MOCK / "mod_load_order.txt").write_text("-- REF COPY", encoding="utf-8")
 (MOCK / "tools").mkdir(exist_ok=True)
 (MOCK / "tools" / "dtkit-patch.exe").write_bytes(b"old tool")
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 app.is_game_running = lambda: False
+patch.is_game_running = lambda: False
 buf = io.BytesIO()
 with zipfile.ZipFile(buf, "w") as z:
     z.writestr("mods/NewMod/NewMod.mod",
@@ -223,4 +239,4 @@ print("\n===== 结果 =====")
 if FAILED:
     print(f"失败 {len(FAILED)} 项: {FAILED}")
     sys.exit(1)
-print("全部通过 ✔")
+print("全部通过 通过")

@@ -1,18 +1,22 @@
 # -*- coding: utf-8 -*-
 """批量操作 API 测试：enable/disable/delete/remove + 游戏运行拒绝"""
 import sys, json
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import patch
+import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
-app.GAME_DIR = MOCK
-app.MODS_DIR = MOCK / 'mods'
-app.CONFIG_FILE = MOCK / 'config_batch_test.json'
-app.BACKUP_DIR = MOCK / 'backups_batch_test'
-app.PROFILES_DIR = MOCK / 'profiles_batch_test'
+state.GAME_DIR = MOCK
+state.MODS_DIR = MOCK / 'mods'
+state.CONFIG_FILE = MOCK / 'config_batch_test.json'
+state.BACKUP_DIR = MOCK / 'backups_batch_test'
+state.PROFILES_DIR = MOCK / 'profiles_batch_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 # 用 build_mock 重建干净环境
@@ -67,9 +71,11 @@ test('base 删除失败(failed 收集)', not r.get('done') and len(r.get('failed
 print('=== 游戏运行中整批拒绝 ===')
 reset()
 app.is_game_running = lambda: True
+patch.is_game_running = lambda: True
 r = app.api_mods_batch(app.BatchBody(names=['TestModA'], action='disable'))
 test('游戏运行中拒绝', not r.get('ok') and '游戏正在运行' in r.get('error', ''), r)
 app.is_game_running = lambda: False
+patch.is_game_running = lambda: False
 
 print('=== 空参数/非法操作 ===')
 r = app.api_mods_batch(app.BatchBody(names=[], action='enable'))
@@ -79,13 +85,13 @@ test('非法 action 拒绝', not r.get('ok'))
 
 # 清理
 import shutil
-shutil.rmtree(app.BACKUP_DIR, ignore_errors=True)
-shutil.rmtree(app.PROFILES_DIR, ignore_errors=True)
-app.CONFIG_FILE.unlink(missing_ok=True)
+shutil.rmtree(state.BACKUP_DIR, ignore_errors=True)
+shutil.rmtree(state.PROFILES_DIR, ignore_errors=True)
+state.CONFIG_FILE.unlink(missing_ok=True)
 
 failed = [n for n, ok in checks if not ok]
 print(f"\n===== {len(checks) - len(failed)}/{len(checks)} 通过 =====")
 if failed:
     print('失败:', failed)
     raise SystemExit(1)
-print('全部通过 ✔')
+print('全部通过 通过')

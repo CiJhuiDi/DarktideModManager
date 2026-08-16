@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """依赖检查测试：packages 解析 / 缺依赖 / 循环依赖"""
 import sys, shutil, subprocess
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import mods
+import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
-app.GAME_DIR = MOCK
-app.MODS_DIR = MOCK / 'mods'
-app.CONFIG_FILE = MOCK / 'config_deps_test.json'
-app.BACKUP_DIR = MOCK / 'backups_deps_test'
+state.GAME_DIR = MOCK
+state.MODS_DIR = MOCK / 'mods'
+state.CONFIG_FILE = MOCK / 'config_deps_test.json'
+state.BACKUP_DIR = MOCK / 'backups_deps_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 # 重建 mock 并构造依赖场景
@@ -33,7 +37,7 @@ print('=== packages 解析格式 ===')
 write_mod('LibA', packages=[])
 write_mod('LibB', packages=[])
 write_mod('NeedsLib', packages=['liba'])
-r = app.parse_mod_deps(MODS / 'NeedsLib')
+r = mods.parse_mod_deps(MODS / 'NeedsLib')
 print('  列表形式:', r)
 assert 'liba' in r
 
@@ -42,12 +46,12 @@ assert 'liba' in r
 (MODS / 'NeedsLib2' / 'NeedsLib2.mod').write_text(
     'return { run = function() new_mod("NeedsLib2", {}) end, packages = { libb = true }, version = "1.0" }',
     encoding='utf-8')
-r = app.parse_mod_deps(MODS / 'NeedsLib2')
+r = mods.parse_mod_deps(MODS / 'NeedsLib2')
 print('  表形式:', r)
 assert 'libb' in r
 
 # 无 packages
-r = app.parse_mod_deps(MODS / 'TestModA')
+r = mods.parse_mod_deps(MODS / 'TestModA')
 print('  无 packages:', r)
 assert r == []
 
@@ -82,6 +86,6 @@ assert 'modb' in dmap.get('ModA', [])
 assert 'missinglib' in dmap.get('ModC', [])
 
 # 清理
-shutil.rmtree(app.BACKUP_DIR, ignore_errors=True)
-app.CONFIG_FILE.unlink(missing_ok=True)
+shutil.rmtree(state.BACKUP_DIR, ignore_errors=True)
+state.CONFIG_FILE.unlink(missing_ok=True)
 print('\n===== 依赖检查测试全部通过 =====')

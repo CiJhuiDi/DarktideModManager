@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 """自定义主题端到端测试：上传/读图/移除/非法格式"""
 import sys, io, json, urllib.request, urllib.error, os, tempfile
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import state
 
 MOCK = Path(r'D:\DeepseekWorkspace\darktide-mod-manager\mock')
-app.CONFIG_FILE = MOCK / 'config_custom_test.json'
+state.CONFIG_FILE = MOCK / 'config_custom_test.json'
 app.CUSTOM_THEME_DIR = MOCK / 'custom_theme_test'
-if app.CONFIG_FILE.exists():
-    app.CONFIG_FILE.unlink()
+if state.CONFIG_FILE.exists():
+    state.CONFIG_FILE.unlink()
 import shutil
 shutil.rmtree(app.CUSTOM_THEME_DIR, ignore_errors=True)
 
@@ -37,7 +40,7 @@ async def main():
     img = app.custom_theme_img()
     test('图片已存', img is not None and img.exists(), img)
     test('扩展名 png', img.suffix == '.png' if img else False, img)
-    cfg = json.loads(app.CONFIG_FILE.read_text(encoding='utf-8'))
+    cfg = json.loads(state.CONFIG_FILE.read_text(encoding='utf-8'))
     test('theme=custom', cfg.get('theme') == 'custom', cfg)
     test('mode=light', cfg.get('custom_theme_mode') == 'light', cfg)
 
@@ -68,17 +71,17 @@ async def main():
     r5 = app.api_theme_custom_remove()
     test('移除 ok', r5.get('ok') and r5.get('removed'), r5)
     test('图已删', app.custom_theme_img() is None)
-    cfg2 = json.loads(app.CONFIG_FILE.read_text(encoding='utf-8'))
+    cfg2 = json.loads(state.CONFIG_FILE.read_text(encoding='utf-8'))
     test('theme 回退 abyss', cfg2.get('theme') == 'abyss', cfg2)
     test('mode 已清', 'custom_theme_mode' not in cfg2, cfg2)
 
-    app.CONFIG_FILE.unlink(missing_ok=True)
+    state.CONFIG_FILE.unlink(missing_ok=True)
     shutil.rmtree(app.CUSTOM_THEME_DIR, ignore_errors=True)
     failed = [n for n, ok in checks if not ok]
     print(f"\n===== {len(checks)-len(failed)}/{len(checks)} 通过 =====")
     if failed:
         print('失败:', failed)
         raise SystemExit(1)
-    print('全部通过 ✔')
+    print('全部通过 通过')
 
 asyncio.run(main())

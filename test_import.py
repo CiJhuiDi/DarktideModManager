@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """造测试用 mod zip 包（标准结构/根散文件/非法/路径穿越/已存在覆盖）"""
 import io
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 import json
 import zipfile
 from pathlib import Path

@@ -1,20 +1,25 @@
 # -*- coding: utf-8 -*-
 """验证防呆：游戏运行时所有写操作被拒绝"""
 import sys, json
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
 
 # 指向 mock 并模拟游戏运行中
-app.GAME_DIR = MOCK
-app.MODS_DIR = MOCK / 'mods'
-app.CONFIG_FILE = MOCK / 'config_test.json'
-app.BACKUP_DIR = MOCK / 'backups_test'
-app.is_game_running = lambda: True  # 强制"游戏运行中"
+state.GAME_DIR = MOCK
+state.MODS_DIR = MOCK / 'mods'
+state.CONFIG_FILE = MOCK / 'config_test.json'
+state.BACKUP_DIR = MOCK / 'backups_test'
+import patch
+app.is_game_running = lambda: True
+patch.is_game_running = lambda: True  # guard 在 patch 模块内调用  # 强制"游戏运行中"
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 # 备份原始清单
@@ -70,16 +75,16 @@ test('DMF 安装', r)
 
 # 8. 备份恢复（用存在的备份目录验证守卫在恢复前拦截）
 import shutil
-bak_src = app.BACKUP_DIR / 'pack_backup_test' / 'mods'
+bak_src = state.BACKUP_DIR / 'pack_backup_test' / 'mods'
 bak_src.mkdir(parents=True, exist_ok=True)
 (bak_src / 'XMod').mkdir(exist_ok=True)
 r = app.api_backup_restore('pack_backup_test')
 test('备份恢复', r)
 
 # 9. 预设应用（走 order 守卫；先建一个真实预设验证被拦）
-app.PROFILES_DIR = MOCK / 'profiles_test'
-app.PROFILES_DIR.mkdir(exist_ok=True)
-(app.PROFILES_DIR / 'test.json').write_text(json.dumps({"mods": ["TestModA"]}), encoding='utf-8')
+state.PROFILES_DIR = MOCK / 'profiles_test'
+state.PROFILES_DIR.mkdir(exist_ok=True)
+(state.PROFILES_DIR / 'test.json').write_text(json.dumps({"mods": ["TestModA"]}), encoding='utf-8')
 r = app.api_profile_apply('test')
 test('预设应用', r)
 
@@ -92,4 +97,4 @@ print(f"\n===== {len(checks) - len(failed)}/{len(checks)} 通过 =====")
 if failed:
     print('失败项:', failed)
     raise SystemExit(1)
-print('全部通过 ✔')
+print('全部通过')

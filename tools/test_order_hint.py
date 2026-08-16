@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
 """顺序检查测试：本体→扩展包含关系 + 顺序反了提示"""
 import sys, shutil, subprocess
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
-app.GAME_DIR = MOCK
-app.MODS_DIR = MOCK / 'mods'
-app.CONFIG_FILE = MOCK / 'config_order_test.json'
-app.BACKUP_DIR = MOCK / 'backups_order_test'
+state.GAME_DIR = MOCK
+state.MODS_DIR = MOCK / 'mods'
+state.CONFIG_FILE = MOCK / 'config_order_test.json'
+state.BACKUP_DIR = MOCK / 'backups_order_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
@@ -55,6 +58,6 @@ print('未启用场景 hints:', r3['order_hints'])
 assert not any(h['ext'] == 'ScoreboardDamage' and h['base'] == 'scoreboard' for h in r3['order_hints']), '未启用的本体不应提示'
 
 # 清理
-shutil.rmtree(app.BACKUP_DIR, ignore_errors=True)
-app.CONFIG_FILE.unlink(missing_ok=True)
+shutil.rmtree(state.BACKUP_DIR, ignore_errors=True)
+state.CONFIG_FILE.unlink(missing_ok=True)
 print('\n===== 顺序检查测试全部通过 =====')

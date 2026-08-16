@@ -1,26 +1,29 @@
 # -*- coding: utf-8 -*-
 """模拟环境端到端测试：开关模拟 -> is_game_running 生效 -> 防呆拦截"""
 import sys, json, asyncio
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
-app.GAME_DIR = MOCK
-app.MODS_DIR = MOCK / 'mods'
-app.CONFIG_FILE = MOCK / 'config_sim_test.json'
-app.BACKUP_DIR = MOCK / 'backups_sim_test'
+state.GAME_DIR = MOCK
+state.MODS_DIR = MOCK / 'mods'
+state.CONFIG_FILE = MOCK / 'config_sim_test.json'
+state.BACKUP_DIR = MOCK / 'backups_sim_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 # 清掉可能的模拟残留
-if app.CONFIG_FILE.exists():
-    app.CONFIG_FILE.unlink()
+if state.CONFIG_FILE.exists():
+    state.CONFIG_FILE.unlink()
 
 print('=== 模拟环境测试 ===')
 
 # 1. 初始：无模拟 -> is_game_running 应为 False（真实环境无 Darktide）
-app.CONFIG_FILE.unlink(missing_ok=True)
+state.CONFIG_FILE.unlink(missing_ok=True)
 print(f'1. 初始未模拟: is_game_running={app.is_game_running()} (期望 False)')
 assert app.is_game_running() is False
 
@@ -57,7 +60,7 @@ print(f'6. 停止模拟后 toggle 恢复: ok={r.get("ok")}')
 assert r.get('ok')
 
 # 清理
-app.CONFIG_FILE.unlink(missing_ok=True)
+state.CONFIG_FILE.unlink(missing_ok=True)
 import shutil
-shutil.rmtree(app.BACKUP_DIR, ignore_errors=True)
+shutil.rmtree(state.BACKUP_DIR, ignore_errors=True)
 print('\n===== 模拟环境测试全部通过 =====')

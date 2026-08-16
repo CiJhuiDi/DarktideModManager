@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """备份恢复预览测试：备份 vs 当前差异"""
 import sys, shutil, subprocess
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import patch
+import state
 
 ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
-app.GAME_DIR = MOCK
-app.MODS_DIR = MOCK / 'mods'
-app.CONFIG_FILE = MOCK / 'config_bprev_test.json'
-app.BACKUP_DIR = MOCK / 'backups_bprev_test'
+state.GAME_DIR = MOCK
+state.MODS_DIR = MOCK / 'mods'
+state.CONFIG_FILE = MOCK / 'config_bprev_test.json'
+state.BACKUP_DIR = MOCK / 'backups_bprev_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
@@ -29,7 +33,7 @@ wm('NewMod', '1.0')
 
 # 构造备份：TestModA(2.0 更新) TestModB(0.5 相同) OldMod(新增回) 无 NewMod(移除)
 ts = '20260815_000000'
-bak_mods = app.BACKUP_DIR / f'pack_backup_{ts}' / 'mods'
+bak_mods = state.BACKUP_DIR / f'pack_backup_{ts}' / 'mods'
 bak_mods.mkdir(parents=True)
 for name, ver in [('TestModA', '2.0'), ('TestModB', '0.5'), ('OldMod', '1.0')]:
     d = bak_mods / name
@@ -60,17 +64,19 @@ print('=== 防呆 ===')
 r = app.api_backup_preview('pack_backup_nonexist')
 test('不存在拒绝', not r.get('ok'))
 app.is_game_running = lambda: True
+patch.is_game_running = lambda: True
 r = app.api_backup_preview(f'pack_backup_{ts}')
 test('游戏运行中拒绝', not r.get('ok') and '游戏正在运行' in r.get('error', ''), r)
 app.is_game_running = lambda: False
+patch.is_game_running = lambda: False
 
 # 清理
-shutil.rmtree(app.BACKUP_DIR, ignore_errors=True)
-app.CONFIG_FILE.unlink(missing_ok=True)
+shutil.rmtree(state.BACKUP_DIR, ignore_errors=True)
+state.CONFIG_FILE.unlink(missing_ok=True)
 
 failed = [n for n, ok in checks if not ok]
 print(f"\n===== {len(checks)-len(failed)}/{len(checks)} 通过 =====")
 if failed:
     print('失败:', failed)
     raise SystemExit(1)
-print('全部通过 ✔')
+print('全部通过 通过')

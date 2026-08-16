@@ -1,23 +1,26 @@
 # -*- coding: utf-8 -*-
 """备份清理策略测试：数量上限（各10份）+ 体积上限（5GB 从旧删起）"""
 import sys, shutil, os
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
 sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
 import app
+import state
 
 MOCK = Path(r'D:\DeepseekWorkspace\darktide-mod-manager\mock')
-app.BACKUP_DIR = MOCK / 'backups_prune_test'
-app.GAME_DIR = MOCK
-app.MODS_DIR = MOCK / 'mods'
-app.CONFIG_FILE = MOCK / 'config_prune_test.json'
+state.BACKUP_DIR = MOCK / 'backups_prune_test'
+state.GAME_DIR = MOCK
+state.MODS_DIR = MOCK / 'mods'
+state.CONFIG_FILE = MOCK / 'config_prune_test.json'
 
 checks = []
 def test(name, cond, detail=''):
     checks.append((name, cond))
     print(f"[{'OK ' if cond else 'FAIL'}] {name}" + (f'  <- {detail}' if detail else ''))
 
-BK = app.BACKUP_DIR
+BK = state.BACKUP_DIR
 if BK.exists():
     shutil.rmtree(BK)
 
@@ -72,11 +75,11 @@ test('无备份不报错', r == [])
 # 恢复默认
 app.BACKUP_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024
 shutil.rmtree(BK, ignore_errors=True)
-app.CONFIG_FILE.unlink(missing_ok=True)
+state.CONFIG_FILE.unlink(missing_ok=True)
 
 failed = [n for n, ok in checks if not ok]
 print(f"\n===== {len(checks)-len(failed)}/{len(checks)} 通过 =====")
 if failed:
     print('失败:', failed)
     raise SystemExit(1)
-print('全部通过 ✔')
+print('全部通过 通过')

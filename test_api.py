@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """测试脚本：对 mock 环境跑一遍全部 API（写操作会改 mock 文件，不会碰真实游戏）"""
 import json
+import sys
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(errors='replace')
 import urllib.parse
 import urllib.request
 from pathlib import Path
