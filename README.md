@@ -7,7 +7,7 @@
 基于 [Darktide Mod Framework (DMF)](https://www.nexusmods.com/warhammer40kdarktide/mods/8) 的加载机制，只做"壳"：管理 mod 启停、加载顺序、方案预设与整合包导入，不干预游戏本体文件。**内置 DMF 全套组件，新玩家下载后即可一键安装框架开玩。**
 
 > 独立窗口应用（pywebview），Windows 10/11，Steam 版 / Xbox 版均可。
-> 当前为 Beta 测试阶段（v0.3.1），欢迎反馈问题与建议。
+> 当前为 Beta 测试阶段（v0.4.0），欢迎反馈问题与建议。
 
 ## ✨ 功能特性
 
@@ -35,8 +35,11 @@
 - 防崩溃设计：绝不动 patch_999 / mod_loader 文件，卸载走"禁用自动装载 + 还原数据库"路线
 - **游戏运行防呆**：游戏运行时自动锁定 mod 增删改（按钮变灰禁用 + 后端双重拦截），防止游戏运行中动 mods 目录导致崩溃/丢 mod
 - **崩溃检测与日志**：游戏退出后自动检测异常退出（崩溃码 / 新崩溃转储），弹窗引导排查；关于页一键打开控制台日志文件夹（%APPDATA%\Fatshark\Darktide\console_logs，文本日志可直接查看 mod 报错）
+- **日志分析（实验）**：日志页多标签（最新/导入文件）、错误/警告/通常三分类过滤 + 关键词搜索、行颜色标识、多选/拖选/右键复制、旧日志拖拽导入、崩溃报告一键导出（含环境信息）
+- **mod 悬停详细描述**：悬停 mod 行显示本地化描述（中文优先，含版本/备注/依赖/缺失警告）
+- **横幅显示控制**：顶部横幅（DMF/补丁/依赖）按钮伪下拉 + 复选框单独控制显隐、一键收起/展开全部；收起后显示指示灯（颜色=状态）；正常状态自动收起、异常自动展开；依赖横幅点击逐个跳转并闪光定位问题 mod（缺依赖/循环/顺序）
 
-**工程细节**：单实例保护、窗口位置记忆、每次写入自动备份、运行日志
+**工程细节**：单实例保护（多开自动聚焦现有窗口）、窗口位置记忆（含屏幕外修复）、每次写入自动备份、游戏目录自动识别与即时切换、运行日志
 
 ## 🚀 快速开始
 
@@ -78,6 +81,8 @@ build.bat   # 或手动执行：
 测试脚本使用 mock 假游戏目录（`mock/` 需自行构建，见脚本注释）：
 
 ```bash
+python tools/test_full.py   # 全量测试（23 套件，改代码后/发布前必跑）
+python tools/smoke_test.py  # 构建后 exe 冒烟测试
 python app.py --port 8317 --browser   # 起测试服务（另开终端）
 python tools/build_mock.py  # 构建干净 mock（每次跑测试前执行，防残留污染）
 python test_api.py      # API 全流程（需干净 mock，先跑）
@@ -94,13 +99,15 @@ python tools/test_dmf_force.py # DMF 覆盖更新
 ## 📁 目录结构
 
 ```
-├── app.py                 # FastAPI 后端（全部逻辑）
+├── app.py                 # FastAPI 后端（核心业务在 core/ 包）
+├── core/                  # 业务模块：state/load_order/patch/mods/imports/dmf/crash/theme/profiles
 ├── static/index.html      # 前端（原生 JS + SortableJS）
 ├── dmf_payload/           # 内置 DMF 组件（一键安装用）
 ├── build.bat              # PyInstaller 打包脚本
+├── tools/                 # 工程脚本：test_full/smoke_test/build_alpha/build_release/release_pack/start_test_env 等
 ├── version_info.txt       # exe 版本信息
 ├── CHANGELOG.md           # 更新历史
-├── test_*.py              # 测试脚本
+├── test_*.py              # 测试脚本（旧，逐步并入 tools/）
 ├── README.txt             # 随包分发的使用说明（中文）
 └── 使用指南.txt           # 新手快速上手指南
 ```
