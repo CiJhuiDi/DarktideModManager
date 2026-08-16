@@ -66,18 +66,50 @@ class _JsApi:
         except Exception:
             return None
 
-# 单实例锁（Windows 命名互斥体，比端口检测可靠）
-_MUTEX_NAME = "Global\\DarktideModManager_Mutex"
+# 单实例锁（Windows 命名互斥体；Local\ 前缀避免 Global\ 的 SeCreateGlobalPrivilege 权限误判）
+_MUTEX_NAME = "Local\\DarktideModManager_Mutex"
 _mutex_handle = None
 
 
 def acquire_single_instance() -> bool:
-    """返回 False 表示已有实例在运行"""
+    """返回 False 表示已有实例在运行（use_last_error 保证 get_last_error 可靠）"""
     global _mutex_handle
     import ctypes
-    kernel32 = ctypes.windll.kernel32
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
     _mutex_handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
     return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
+
+
+def focus_existing_window(title: str = "暗潮 Mod 管理器") -> bool:
+    """多开被拒时尝试激活已有实例的主窗口，返回是否成功。
+    校验窗口进程必须属于本程序（防误中 explorer TabProxyWindow 等同名窗口）。"""
+    try:
+        import ctypes
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
+        user32.FindWindowW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        user32.FindWindowW.restype = ctypes.c_void_p
+        user32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
+        user32.SetForegroundWindow.restype = ctypes.c_bool
+        user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+        hwnd = user32.FindWindowW(None, title)
+        if not hwnd:
+            return False
+        # 校验窗口属于 DarktideModManager.exe（防误中同名窗口）
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        try:
+            out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid.value, '/FO', 'CSV', '/NH'],
+                                 capture_output=True, timeout=5,
+                                 creationflags=CREATE_NO_WINDOW).stdout
+            if 'DarktideModManager.exe' not in (out or b''):
+                return False
+        except Exception:
+            return False
+        user32.SetForegroundWindow(hwnd)
+        return True
+    except Exception:
+        return False
 
 
 def find_free_port(start: int = 8317, tries: int = 50) -> int:
@@ -984,10 +1016,12 @@ if __name__ == "__main__":
 
     # 单实例保护：命名互斥体
     if not args.browser and not acquire_single_instance():
+        focused = focus_existing_window()
+        logging.getLogger().info("检测到已有实例，拒绝多开" + ("（已聚焦现有窗口）" if focused else "（未找到窗口）"))
         import ctypes
-        ctypes.windll.user32.MessageBoxW(
-            0, "暗潮 Mod 管理器已经在运行中。\n请查看任务栏或系统托盘。",
-            "暗潮 Mod 管理器", 0x40)
+        msg = "暗潮 Mod 管理器已经在运行中。"
+        msg += "\n已切换到现有窗口。" if focused else "\n请查看任务栏或系统托盘。"
+        ctypes.windll.user32.MessageBoxW(0, msg, "暗潮 Mod 管理器", 0x40)
         sys.exit(0)
 
     # 端口：显式指定则用指定值，否则动态分配空闲端口

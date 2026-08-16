@@ -124,6 +124,10 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 | `sync_release_notes.py <tag>` | 按 CHANGELOG 同步 Release 说明 |
 | `build_mock.py` | 重建测试用 mock 假游戏目录 |
 | `start_test_env.py` | 一键测试环境：杀僵尸进程（exe+python）→ 清端口 → 重建 mock → 起服务（前台阻塞，Ctrl+C 停；--skip-build 跳过重建） |
+| `test_full.py` | **全量测试一键**：清环境 → tools 套件（17）→ 重建 mock+起服务+HTTP 套件（3）→ 独立目录套件（3，自动清 backups 残留、识别 test_pack SAMPLE 已知 bug 跳过） |
+| `smoke_test.py [exe]` | **exe 冒烟测试**：起 exe → 从 app.log 解析端口 → 验证 GET / + /api/status → 自动关闭（会弹窗几秒） |
+| `build_alpha.py` | **alpha 构建一键**：检查版本显示（必须 Alpha 态）→ PyInstaller → 同步 release/DarktideModManager_alpha/（不打 zip；--skip-build/--check） |
+| `release_pack.py <ver>` | **正式发布打包**：同步 release/DarktideModManager_vX.Y.Z/ + 打 zip（前置：bump 版本 + 构建 exe） |
 | `hanhua_dmf.py` | 重写 DMF localization（自译汉化） |
 | test_*.py（11 个） | 专项测试：batch/classify/deps/order_hint/export/preview/backup_preview/load_order/load_order_backup/load_order_preview/folder_import/guard/simulate/dmf_force |
 
