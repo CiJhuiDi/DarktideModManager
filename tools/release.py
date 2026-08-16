@@ -4,6 +4,8 @@
 说明: 从 CHANGELOG.md 提取 [tag] 对应版本段作为正文，创建/更新 Release 并上传 zip。
 """
 import subprocess, os, sys, argparse
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
 def gh(args):
     return subprocess.run(['gh'] + args, capture_output=True, text=True, encoding='utf-8', errors='replace')
