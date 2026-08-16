@@ -1595,8 +1595,7 @@
       const el = $('light' + key[0].toUpperCase() + key.slice(1));
       if (!el) return;
       el.className = 'b-light ' + (color || 'gray');  // 颜色由圆点表达，不加文字
-      if (bannerAutoCollapse && key !== 'dep') {
-        // 依赖横幅不参与自动收起/展开（始终按手动控制显示）
+      if (bannerAutoCollapse) {
         const manualRecent = Date.now() - bannerExpandTime[key] < 30000;  // 手动展开后 30s 内不自动收
         if (color === 'green' && bannerVisible[key] && bannerLastColor[key] !== 'green' && !manualRecent) {
           // 状态刚变正常 → 自动收起为指示灯
