@@ -160,6 +160,22 @@
   /* ---------- 工具条 ---------- */
   .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 14px 8px; flex-shrink: 0; }
   .toolbar button { white-space: nowrap; flex-shrink: 0; }
+  .ghost:disabled {
+    background: #141419; color: #4a4a55; border-color: #2a2a33;
+    opacity: .75; cursor: not-allowed;
+  }
+  .ghost:disabled:hover { background: #141419; }
+  .ghost.danger-crash { border-color: #b84444; color: #ff9a9a; }
+  .ghost.danger-crash:not(:disabled):hover { background: #4a1f1f; }
+  .ghost.danger-crash:disabled { border-color: #3a2020; color: #5a3a3a; }
+  .search-wrap { position: relative; flex-shrink: 0; }
+  .search-wrap input { padding-right: 26px; }
+  #btnClearSearch {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--dim, #999);
+    cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px;
+  }
+  #btnClearSearch:hover { color: var(--text); }
   input[type="text"] {
     background: var(--panel2); color: var(--text); border: 1px solid var(--border);
     border-radius: 7px; padding: 7px 12px; font-size: 13px; outline: none; flex: 1; max-width: 320px;
@@ -226,6 +242,7 @@
   /* ---------- DMF 横幅 / 补丁横幅 / 拖拽导入 ---------- */
   #dmfBanner { padding: 0 14px; flex-shrink: 0; }
   #patchBanner { padding: 0 14px; flex-shrink: 0; }
+  #dmfBanner, #patchBanner, #depBanner { padding: 0 14px; box-sizing: border-box; }
   .banner {
     display: flex; align-items: center; gap: 12px;
     border-radius: 9px; padding: 10px 14px; margin-bottom: 10px; font-size: 12.5px;
@@ -462,7 +479,10 @@
       <!-- Mod 视图 -->
       <section class="view active" id="view-mods">
         <div class="toolbar">
-          <input type="text" id="search" placeholder="搜索 mod 名称…">
+          <div class="search-wrap">
+            <input type="text" id="search" placeholder="搜索 mod 名称…">
+            <button id="btnClearSearch" title="清空搜索" style="display:none">✕</button>
+          </div>
           <div class="chips">
             <button class="chip active" data-filter="all">全部</button>
             <button class="chip" data-filter="on">已启用</button>
@@ -518,12 +538,12 @@
           <div class="card">
             <h3>路径</h3>
             <div class="kv" id="aboutPaths"></div>
-            <div style="display:flex;gap:8px;margin-top:14px">
-              <input type="text" id="dirInput" placeholder="粘贴游戏目录完整路径，例如 D:\SteamLibrary\steamapps\common\Warhammer 40,000 DARKTIDE" style="flex:1">
-              <button class="ghost" id="btnSetDir">保存目录</button>
+            <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+              <button class="ghost" id="btnDetectDir">🔍 自动识别</button>
+              <button class="ghost" id="btnPickDir">📂 选择文件夹</button>
             </div>
             <div class="tip" style="margin-top:8px">
-              如何找到：Steam 库 → 右键《暗潮》→ 管理 → 浏览本地文件，复制窗口地址栏路径。保存后需重启应用生效。
+              「自动识别」扫描常见 Steam 库并自动定位游戏目录；「选择文件夹」弹窗手动指定（Steam 库 → 右键《暗潮》→ 管理 → 浏览本地文件）。保存后立即生效。
             </div>
           </div>
           <div class="card">
@@ -572,11 +592,12 @@
             <h3>模拟环境（测试专用）</h3>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <button class="ghost" id="btnSimOn">🎮 模拟游戏运行</button>
+              <button class="ghost danger-crash" id="btnSimCrash" disabled>💥 模拟游戏崩溃</button>
               <button class="ghost" id="btnSimOff">停止模拟</button>
               <span class="dim" id="simState" style="font-size:12.5px"></span>
             </div>
             <div class="tip" style="margin-top:8px">
-              无需真开游戏，即可测试「游戏运行中锁定 mod 编辑」等防呆逻辑。仅测试用，退出应用前记得停止模拟。
+              无需真开游戏，即可测试「游戏运行中锁定 mod 编辑」等防呆逻辑。「模拟游戏崩溃」需在模拟运行生效后使用，模拟游戏异常退出、界面解锁。仅测试用，退出应用前记得停止模拟。
             </div>
           </div>
           <div class="card">
@@ -587,7 +608,8 @@
               ③ 每次写入前自动备份到 exe 旁的 backups 目录（保留 10 份）。<br>
               ④ 游戏更新后 mods 会被官方禁用，届时点顶部「安装补丁」即可恢复。<br>
               ⑤ 修改仅在下次启动游戏时生效。<br>
-              ⑥ 游戏崩溃与管理器无关：管理器只读写 mods 配置和打补丁，不修改游戏本体；崩溃多为 mod 冲突或版本不兼容，可逐个禁用 mod 排查（操作均有自动备份，可随时恢复）。
+              ⑥ 游戏崩溃与管理器无关：管理器只读写 mods 配置和打补丁，不修改游戏本体；崩溃多为 mod 冲突或版本不兼容，可逐个禁用 mod 排查（操作均有自动备份，可随时恢复）。<br>
+              ⑦ 崩溃后点本页「打开控制台日志文件夹」，用记事本看最新 console-*.log 里的报错定位问题。
             </div>
           </div>
         </div>
@@ -621,7 +643,7 @@
     <div class="modal">
       <div class="modal-title" id="modalTitle"></div>
       <div id="modalBody"></div>
-      <div class="modal-actions">
+      <div class="modal-actions" id="modalActions">
         <button id="modalCancel">取消</button>
         <button class="ok" id="modalOk">确定</button>
       </div>
@@ -804,11 +826,15 @@
 
     /* ---------- 应用内模态框（替代 prompt/confirm，避免浏览器风格弹窗） ---------- */
     let modalResolve = null;
-    function showModal({ title, text, textAfter, input, placeholder, okText, extra, value, wide, choices, choicesRequired, choicesInstant, lines }) {
+    function showModal({ title, text, textAfter, input, placeholder, okText, extra, value, wide, choices, choicesRequired, choicesInstant, lines, hideActions }) {
       return new Promise(resolve => {
         modalResolve = resolve;
         // 清理上一次残留的动态按钮（用类名清全部，避免重复 id 只删第一个导致按钮增生）
         document.querySelectorAll('.modal-extra').forEach(b => b.remove());
+        // 底部标准按钮（取消/确定）：默认显示，hideActions=true 时隐藏（如崩溃弹窗只用 extra）
+        // hideActions：只隐藏底部标准按钮（取消/确定），extra 按钮保留可见
+        $('modalCancel').style.display = hideActions ? 'none' : '';
+        $('modalOk').style.display = hideActions ? 'none' : '';
         $('modal').classList.toggle('wide', !!wide);
         $('modalTitle').textContent = title;
         const body = $('modalBody');
@@ -1104,7 +1130,8 @@
       }
       updateBatchBar();
     }
-    searchEl.addEventListener('input', () => { keyword = searchEl.value.trim(); render(); });
+    searchEl.addEventListener('input', () => { keyword = searchEl.value.trim(); render(); $('btnClearSearch').style.display = searchEl.value ? '' : 'none'; });
+    $('btnClearSearch').addEventListener('click', () => { searchEl.value = ''; keyword = ''; render(); $('btnClearSearch').style.display = 'none'; searchEl.focus(); });
     document.querySelectorAll('.chip').forEach(chip => {
       chip.addEventListener('click', () => {
         document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
@@ -1258,6 +1285,70 @@
 
     /* 10 秒轮询：游戏运行状态/补丁状态实时刷新；游戏退出后自动装载补丁 */
     let lastGameRunning = false;
+    /* 崩溃检测：游戏退出后若出现新崩溃转储 → 弹窗引导排查 */
+    let lastCrashKey = null;   // 上次见过的崩溃转储文件名（null=未初始化）
+    let crashModalOpen = false;
+    let simCrashPending = false;  // 模拟崩溃标志：强制走一次弹窗流程（测试用）
+    async function checkCrashAfterExit() {
+      if (crashModalOpen) return;
+      let crashed = false;
+      let crashTime = '';
+      let consoleName = '';  // 最新控制台日志文件名（console_logs\console-*.log，教程说的排查入口）
+      let simulated = simCrashPending;
+      if (simCrashPending) {
+        // 模拟崩溃：强制弹窗（验证弹窗流程与按钮）
+        simCrashPending = false;
+        crashed = true;
+      }
+      // 信号 1：管理器启动的进程以 NTSTATUS 异常码退出（如 0xC0000005 访问冲突）
+      try {
+        const ec = await api('/api/game/launched_exit');
+        if (ec && ec.crashed) {
+          crashed = true;
+        }
+      } catch (e) { /* 忽略 */ }
+      // 信号 2：crash_dumps 出现新文件（覆盖 Steam 启动的游戏）；顺带记录最新控制台日志（排查入口）
+      try {
+        const cr = await api('/api/crash_logs');
+        if (cr.ok) {
+          if (cr.console) consoleName = cr.console.name;
+          if (cr.latest) {
+            const key = cr.latest.name;
+            if (lastCrashKey === null) { lastCrashKey = key; }  // 首次：只记基线
+            else if (key !== lastCrashKey) { lastCrashKey = key; crashed = true; crashTime = cr.latest.time; }
+          }
+        }
+      } catch (e) { /* 忽略 */ }
+      if (!crashed) return;
+      crashModalOpen = true;
+      try {
+        const r = await showModal({
+          title: simulated ? '💥 检测到游戏崩溃（模拟测试）' : '💥 检测到游戏崩溃',
+          lines: (() => {
+            const ls = [
+              (simulated ? '（模拟测试，非真实崩溃）' : (crashTime ? `检测到游戏刚刚异常退出（${crashTime}）。` : '检测到游戏刚刚异常退出。')),
+              '管理器只读写 mods 配置和打补丁，不修改游戏本体；崩溃多为 mod 冲突或与游戏版本不兼容。',
+            ];
+            if (consoleName) ls.push({ text: `📄 最新控制台日志：${consoleName}`, cls: 'dim' });
+            ls.push(
+              { text: '① 查看控制台日志（文本日志）里的报错，把相关片段发给群友/作者求助', cls: 'dim' },
+              { text: '② 逐个禁用最近添加的 mod，定位冲突源', cls: 'dim' },
+              { text: '③ 游戏更新后先点「安装补丁」再进游戏', cls: 'dim' },
+            );
+            return ls;
+          })(),
+          extra: [
+            { text: '📄 查看控制台日志', value: 'open' },
+            { text: '我知道了', value: 'ok' },
+          ],
+          hideActions: true,
+        });
+        if (r === 'open') {
+          const o = await api('/api/crash_logs/open', { method: 'POST' });
+          toast(o.message || o.error || '已打开日志目录');
+        }
+      } finally { crashModalOpen = false; }
+    }
     async function pollStatus() {
       try {
         const st = await api('/api/status');
@@ -1267,6 +1358,7 @@
         if (wasRunning && !gameRunning) {
           // 游戏刚退出：自动装载补丁（未手动禁用时），下轮轮询刷新横幅
           api('/api/patch/auto', { method: 'POST' }).catch(() => {});
+          checkCrashAfterExit();  // 崩溃检测：有新崩溃转储则弹窗引导排查
         }
         patchInfo = st.patch || { patched: false, tool_exists: false };
         dmfInfo = st.dmf || null;
@@ -1276,6 +1368,9 @@
       } catch (e) { /* 静默，下次再试 */ }
     }
     setInterval(pollStatus, 10000);
+
+    // 初始化崩溃基线（避免把启动前的历史崩溃当新崩溃弹窗）
+    api('/api/crash_logs').then(cr => { if (cr.ok && cr.latest) lastCrashKey = cr.latest.name; }).catch(() => {});
 
     /* ---------- mod 导入（点击 / 拖拽） ---------- */
     async function uploadModFiles(fileList) {
@@ -1907,73 +2002,87 @@
     async function loadAbout() {
       const st = await api('/api/status');
       const valid = st.game_dir_valid ? '✓ 已识别' : '✗ 未找到（请在下框设置）';
+      const crashHtml = '<button class="link-btn" id="btnOpenCrashLogs">📂 打开控制台日志文件夹</button>';
       $('aboutPaths').innerHTML =
         `<span class="k">游戏目录</span><span class="v">${st.game_dir}（${valid}）</span>` +
         `<span class="k">mods 目录</span><span class="v">${st.mods_dir}</span>` +
         `<span class="k">加载清单</span><span class="v">mods\\mod_load_order.txt</span>` +
         `<span class="k">预设目录</span><span class="v">${st.profiles_dir}</span>` +
         `<span class="k">日志文件</span><span class="v">exe 同目录 app.log</span>` +
-        `<span class="k">内置 DMF</span><span class="v">${dmfStatusHtml(st.dmf)}</span>` +
+        `<span class="k">崩溃日志</span><span class="v">${crashHtml}</span>` +
         `<span class="k">项目主页</span><span class="v"><button class="link-btn" id="btnOpenRepo">🌐 GitHub</button></span>`;
-      $('dirInput').value = '';
-      const repoBtn = $('btnOpenRepo');
-      if (repoBtn) repoBtn.addEventListener('click', async () => {
+      const simState = $('simState');
+      if (simState) simState.textContent = st.simulated_game_running ? '当前：模拟运行中' : '当前：未模拟';
+      // 崩溃模拟按钮：模拟运行生效前禁用（视觉变黑，见 .ghost:disabled）
+      const simCrash = $('btnSimCrash');
+      if (simCrash) simCrash.disabled = !st.simulated_game_running;
+    }
+
+    /* 关于页动态按钮：事件委托（绑定一次即可，避免 loadAbout 重复调用时监听器累积） */
+    document.addEventListener('click', async (e) => {
+      const repo = e.target.closest('#btnOpenRepo');
+      if (repo) {
         try {
           const r = await api('/api/open_url', { method: 'POST', body: JSON.stringify({ url: 'https://github.com/CiJhuiDi/DarktideModManager' }) });
           if (!r.ok && r.error) toast(r.error);
-        } catch (e) { toast('打开失败: ' + e.message); }
-      });
-      const overwriteBtn = $('btnDmfOverwrite');
-      if (overwriteBtn) overwriteBtn.addEventListener('click', async () => {
-        const ok = await showModal({
-          title: '覆盖更新 DMF',
-          text: '将用内置组件覆盖游戏目录中的 DMF 框架，旧文件会自动备份，可在「备份」页恢复。确认执行？',
-          okText: '覆盖更新'
-        });
-        if (!ok) return;
-        overwriteBtn.disabled = true; overwriteBtn.textContent = '覆盖中…';
+        } catch (err) { toast('打开失败: ' + err.message); }
+        return;
+      }
+      const crash = e.target.closest('#btnOpenCrashLogs');
+      if (crash) {
         try {
-          const r = await api('/api/dmf/install', { method: 'POST', body: JSON.stringify({ force: true }) });
-          toast(r.message || (r.ok ? '完成' : '失败'));
-          if (!r.ok && r.error) toast(r.error);
-        } catch (e) { toast('失败: ' + e.message); }
-        loadAbout();
-      });
-      // 模拟游戏运行（测试专用）
-      const simState = $('simState');
-      if (simState) simState.textContent = st.simulated_game_running ? '当前：模拟运行中' : '当前：未模拟';
-      const simOn = $('btnSimOn'), simOff = $('btnSimOff');
-      if (simOn) simOn.addEventListener('click', async () => {
+          const r = await api('/api/crash_logs/open', { method: 'POST' });
+          toast(r.message || r.error || (r.ok ? '已打开' : '打开失败'));
+        } catch (err) { toast('打开失败: ' + err.message); }
+        return;
+      }
+      const simOn = e.target.closest('#btnSimOn');
+      if (simOn) {
         try {
           const r = await api('/api/simulate_game', { method: 'POST', body: JSON.stringify({ running: true }) });
-          if (r.ok) { toast('已模拟游戏运行（界面已锁定编辑）'); load(); }
+          if (r.ok) { toast('已模拟游戏运行（界面已锁定编辑）'); load(); loadAbout(); }
           else toast(r.error || '模拟失败');
-        } catch (e) { toast('模拟失败: ' + e.message); }
-      });
-      if (simOff) simOff.addEventListener('click', async () => {
+        } catch (err) { toast('模拟失败: ' + err.message); }
+        return;
+      }
+      const simOff = e.target.closest('#btnSimOff');
+      if (simOff) {
         try {
           const r = await api('/api/simulate_game', { method: 'POST', body: JSON.stringify({ running: false }) });
-          if (r.ok) { toast('已停止模拟'); load(); }
+          if (r.ok) { toast('已停止模拟'); load(); loadAbout(); }
           else toast(r.error || '停止失败');
-        } catch (e) { toast('停止失败: ' + e.message); }
-      });
-    }
-    function dmfStatusHtml(dmf) {
-      if (!dmf || !dmf.game_dir_valid) return '<span class="dim">未设置游戏目录</span>';
-      if (dmf.installed) {
-        return `✓ 已安装 <button class="link-btn" id="btnDmfOverwrite">🔄 覆盖更新</button>`;
+        } catch (err) { toast('停止失败: ' + err.message); }
+        return;
       }
-      const n = dmf.missing ? dmf.missing.length : 0;
-      return `✗ 未安装（缺 ${n} 个组件）`;
-    }
-    $('btnSetDir').addEventListener('click', async () => {
-      const dir = $('dirInput').value.trim();
-      if (!dir) return toast('请输入游戏目录路径');
+      const simCrash = e.target.closest('#btnSimCrash');
+      if (simCrash) {
+        try {
+          simCrashPending = true;  // 注入模拟崩溃信号：走一次完整弹窗流程
+          const r = await api('/api/simulate_game', { method: 'POST', body: JSON.stringify({ running: false }) });
+          if (r.ok) { toast('💥 已模拟游戏崩溃（界面已解锁，弹窗为模拟测试）'); load(); loadAbout(); checkCrashAfterExit(); }
+          else simCrashPending = false;
+        } catch (err) { simCrashPending = false; toast('模拟崩溃失败: ' + err.message); }
+        return;
+      }
+    });
+    $('btnDetectDir').addEventListener('click', async () => {
       try {
+        const r = await api('/api/game_dir/detect', { method: 'POST' });
+        if (r.ok) { toast('已识别并保存游戏目录，立即生效'); loadAbout(); load(); }
+        else toast(r.error || '自动识别失败');
+      } catch (e) { toast('自动识别失败: ' + e.message); }
+    });
+    $('btnPickDir').addEventListener('click', async () => {
+      if (!window.pywebview || !window.pywebview.api) {
+        return toast('选择文件夹仅支持应用窗口内使用（网页预览不可用）');
+      }
+      try {
+        const dir = await window.pywebview.api.pick_folder();
+        if (!dir) return;
         const r = await api('/api/settings/game_dir', { method: 'POST', body: JSON.stringify({ path: dir }) });
-        if (r.ok) toast('目录已保存，重启应用后生效');
+        if (r.ok) { toast('目录已保存，立即生效'); loadAbout(); load(); }
         else toast('无效目录：' + r.error);
-      } catch (e) { toast('保存失败: ' + e.message); }
+      } catch (e) { toast('选择失败: ' + e.message); }
     });
     initTheme();
     bindThemeUI();

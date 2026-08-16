@@ -34,6 +34,7 @@
 - 一键启动游戏（绕过启动器，带 Steam 登录/运行状态保护）
 - 防崩溃设计：绝不动 patch_999 / mod_loader 文件，卸载走"禁用自动装载 + 还原数据库"路线
 - **游戏运行防呆**：游戏运行时自动锁定 mod 增删改（按钮变灰禁用 + 后端双重拦截），防止游戏运行中动 mods 目录导致崩溃/丢 mod
+- **崩溃检测与日志**：游戏退出后自动检测异常退出（崩溃码 / 新崩溃转储），弹窗引导排查；关于页一键打开控制台日志文件夹（%APPDATA%\Fatshark\Darktide\console_logs，文本日志可直接查看 mod 报错）
 
 **工程细节**：单实例保护、窗口位置记忆、每次写入自动备份、运行日志
 
@@ -144,9 +145,9 @@ A: 官方对 mod 持开放态度，但联机使用第三方 mod 需遵守游戏�
 - [Darktide Mod Framework 社区](https://github.com/Darktide-Mod-Framework)
 - [dtkit-patch](https://github.com/ManShanko/dtkit-patch)（[ManShanko](https://github.com/manshanko)）
 - [dt-mod-autopatch](https://github.com/manshanko/dt-mod-autopatch)（ManShanko，自动装载插件）
-- [xsSplater](https://github.com/xsSplater)（绕过游戏启动器启动脚本，GPL 3.0）
+- [xsSplater](https://github.com/xsSplater/Darktide_laucher_bypass)（绕过游戏启动器启动脚本，GPL 3.0，仅致谢参考，未随本软件分发）
 - mod 整合包作者们（测试环境参考）
 
 ## 📄 许可证
 
-[MIT](LICENSE)
+主程序以 [MIT](LICENSE) 协议发布；内置第三方组件按各自协议分发，详见 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
