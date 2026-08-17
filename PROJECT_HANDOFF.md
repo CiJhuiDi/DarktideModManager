@@ -195,7 +195,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 ## 十二、待办 / 可能的下一步
 
 - 用户反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比的实机体验）
-- 验证用户实机：游戏关闭后 mod 启停开关是否已随轮询解锁（2026-08-17 修复，alpha 构建 release\DarktideModManager_alpha\ 待实机验证）
+- 验证用户实机：① 游戏关闭后 mod 启停开关是否已随轮询解锁；② mod 取消勾选后保存能否真正停用（2026-08-17 两处修复，alpha 构建 release\DarktideModManager_alpha\ 待实机验证）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
 - 注意 release\DarktideModManager_v0.3.1\ 里可能有用户实际运行产生的 backups/config（本地数据）
 - test_pack.py 的 SAMPLE 留空时前置 check 无条件失败（历史遗留脚本 bug，与功能无关，跑测试时可忽略或用真实整合包路径）
