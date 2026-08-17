@@ -11,6 +11,13 @@ import shutil
 import subprocess
 import sys
 
+# 统一 stdout/stderr 编码，防 GBK 控制台打印 emoji 崩溃（与其它 tools 脚本一致）
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALPHA_DIR = os.path.join(ROOT, 'release', 'DarktideModManager_alpha')
 RELEASE_FILES = ['DarktideModManager.exe', 'README.txt', '使用指南.txt', 'LICENSE', 'THIRD_PARTY_LICENSES.md']

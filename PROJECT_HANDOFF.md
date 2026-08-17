@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-16 16:05（日志分析/横幅控制/悬停描述等实验功能 + 文档整理）
+> 最后更新：2026-08-17 10:10（修复：游戏关闭后 mod 启停开关不随轮询解锁；工具链新增 set_alpha_state）
 
 ---
 
@@ -11,7 +11,7 @@
 只做"壳"：管理 mod 启停/顺序/预设/整合包导入，内置 DMF 框架组件，不碰游戏本体。
 
 - **代码位置**：`D:\DeepseekWorkspace\darktide-mod-manager\`
-- **当前版本**：v0.3.1（正式版基线，2026-08-15 发布）；工作区已含 v0.4.0 功能集（崩溃检测/控制台日志/目录优化/架构重构）
+- **当前版本**：v0.4.0（正式版基线，2026-08-16 发布）；工作区为 **Alpha 测试态**（界面/exe 只标 Alpha、不带版本号、不打 zip，RULES 第 9 条；切回用 `tools/set_alpha_state.py`，发布时 build_release 自动恢复）
 - **测试形态**：Alpha 测试版（`release\DarktideModManager_alpha\`，界面只标 Alpha、不带版本号、不打 zip）；
   正式发布时再 bump 版本 + CHANGELOG 定版 + 打 zip（RULES 第 9 条）
 - **GitHub**：https://github.com/CiJhuiDi/DarktideModManager（CiJhuiDi）
@@ -102,6 +102,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 - 导入整合包前 / 恢复备份前 / 恢复清单前 / 应用预设前 → 结构化彩色行预览
 
 **防呆**：游戏运行中 9 个写 API 守卫 + 前端按钮变灰 + **模拟游戏运行**（关于页开关）
+- ⚠️ **前端运行状态锁的坑（2026-08-17）**：mod 列表 checkbox 的禁用态在 render() 时写死，轮询（pollStatus 每 10s）更新 gameRunning 后若不重渲染列表，checkbox 永远保持禁用 → 游戏关闭后启动按钮恢复但启停开关仍灰锁。修法：updateEditLocks() 直接同步 `.switch input` 的 disabled + locked class（不依赖重渲染）；拖拽用 Sortable onMove 返回 !gameRunning 拦截。改前端列表类锁定先查这里。
 
 ## 四、开发/发布流程（重要！）
 
@@ -194,6 +195,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 ## 十二、待办 / 可能的下一步
 
 - 用户反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比的实机体验）
+- 验证用户实机：游戏关闭后 mod 启停开关是否已随轮询解锁（2026-08-17 修复，alpha 构建 release\DarktideModManager_alpha\ 待实机验证）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
 - 注意 release\DarktideModManager_v0.3.1\ 里可能有用户实际运行产生的 backups/config（本地数据）
 - test_pack.py 的 SAMPLE 留空时前置 check 无条件失败（历史遗留脚本 bug，与功能无关，跑测试时可忽略或用真实整合包路径）
