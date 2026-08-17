@@ -1,5 +1,5 @@
 ========================================
-  暗潮 Mod 管理器 DarktideModManager Alpha 测试版
+  暗潮 Mod 管理器 DarktideModManager v0.4.1
 ========================================
 
 一款为《战锤40K：暗潮》(Darktide) 设计的轻量 Mod 管理器。
