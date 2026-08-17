@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-18 01:05（补充暗潮 Mod 生态交接段；DMM 本体 v0.4.1）
+> 最后更新：2026-08-18 01:05（各 mod 项目独立交接文档，本文件只记录 DMM 本体；DMM v0.4.1）
 
 ---
 
@@ -192,37 +192,6 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 - **内容**：16 个示例假 mod，覆盖中文名 / 缺依赖 / 循环依赖 / 顺序扩展 / 版本差异 / 禁用 / 无版本
 - **以后新版 exe 同步**：构建后运行 reset_demo.py（自动把 dist 的新 exe 复制进 demo）
 - release 包照旧在 release\
-
-## 十二·五、暗潮 Mod 生态（2026-08-17/18 工作，非 DMM 本体）
-
-> 四个 mod 项目都在 `D:\DeepseekWorkspace\暗潮\04-Mods\` 下，每个是独立 git 仓库（均已在 GitHub 建仓，CiJhuiDi 账号）。
-> 开发规范/游戏源码/参考 mod 见 `D:\DeepseekWorkspace\暗潮\`（01-开发规范 / 02-游戏源码 / 99-临时文件\ref）。
-
-### myhavoc（浩劫任务工具）— v1.1.0 已发布
-- 位置：`04-Mods\myhavoc\`；仓库：github.com/CiJhuiDi/darktide-myhavoc（v1.0.0 + v1.1.0 两个 Release）
-- `/myhavoc`：发送自己的浩劫任务(层数/地图/词条)到队伍聊天；`/havocstart`：一键开始自己的浩劫任务（v1.1.0，链路同浩劫面板 `havoc_play_view._cb_on_mission_start`：有 ongoing_mission_id 直接复用，否则 `activate_havoc_mission` → `party_immaterium:wanted_mission_selected`；400 already_has_ongoing_mission 特判）
-- 数据源：`Managers.data_service.havoc:current_order()` → order.rank / order.blueprint.map / blueprint.flags(词条 `havoc-circ-*`)；词条名 `circumstance_templates[id].ui.display_name` → localize（中文自动）
-- 参考实现：Wobin/HavocAuspex + Transmitter（归档 `暗潮\99-临时文件\havoc_auspex_ref\`）
-
-### color_mark（彩色标记）— v1.0.0 已推未实测
-- 位置：`04-Mods\color_mark\`；仓库：github.com/CiJhuiDi/darktide-color-mark
-- 选人方案定稿：**队伍列表编号**（`/squad` 列当前队伍真名 → `/mark 编号 颜色`），砍掉 friends/recent/players/label_color
-- 队伍数据：`social:fetch_party_members()` → PlayerInfo（真名 character_name()，不受 AnonPlayers 隐藏影响）；标记 key=account_id，persistent_table 持久化
-
-### status_wheel（状态轮盘）— v2.0.0 已推未实测（⚠️ 两坑已修）
-- 位置：`04-Mods\status_wheel\`；仓库：github.com/CiJhuiDi/darktide-status-wheel
-- v2.0.0 整合 For The Emperor（已停更）全量：14 槽可拖拽重排（mod:set wheel_config 持久化）+ 每项独立快捷键(keybind_<key>)+ 求助联动(#need_help 协议:本地语音+聊天,队友响应播语音+头顶10秒标记)+ dibs 禁用 + 报告高压按钮(「高压！！！」)
-- ⚠️ **崩溃坑(已修)**：自定义条目必须带 `voice_event_data = {voice_tag_concept, voice_tag_id=""}`，原生 `_on_com_wheel_stop_callback` 会索引它（nil 直接崩游戏，日志 `attempt to index field 'voice_event_data'`）
-- ⚠️ **重叠坑(已修)**：14 槽 + 112px 图标必叠（半径 190 固定）；图标尺寸按槽位数动态缩放（≤8:112 / ≤10:100 / ≤12:88 / 14:76）
-- 防御式适配：FTE 私有字段全换公开 API（chat:sessions()、player:players_at_peer）；SmartTagSystem/VivoxManager 用 DMF 字符串 hook（自动延迟）
-- 参考：FTE 源码归档 `暗潮\99-临时文件\fte_ref\`；游戏 UI 源码在线仓库 Aussiemon/Darktide-Source-Code（本地反编译无 UI 层，在线拉取 smart_tagging/havoc_play_view）
-
-### term_db（暗潮术语库）— 立项 v0.3，待定稿
-- 位置：`04-Mods\term_db\`（data/terms.js 63 条 + demo/index.html + docs/术语清单_v0.3.md）；git 已 init 未建远端仓
-- 数据来源：`03-技能树\数据\darktide_zh_loc.json`（官方中文 139724 键）+ 官方术语表 loc_glossary_*（22 条）+ 反编译源码验证
-- ⚠️ **术语勘误**：撕裂=Rending(破甲/减护甲减伤)，脆弱=Brittleness(每层 2.5% 增伤)；链锯撕裂(Sawing)与两者无关
-- 护甲六类：无甲/感染/狂人/防弹/硬壳/不屈（Unarmored/Infested/Berzerker/Armored/Super Armor/Resistant）
-- 下一步：用户定稿去留 → 补 glossary 词条 → 关系图谱 → 游戏内 mod 化
 
 ## 十二、待办 / 可能的下一步
 
