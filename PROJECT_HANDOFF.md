@@ -87,6 +87,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 - 前端 .mod-tip 浮层：显示名/原名/版本/描述/备注/依赖/缺失警告（350ms 延迟，防溢出）
 
 **Mod 管理**：启停/排序/搜索/中文显示名/右键菜单/方案预设/**批量操作（右键多选模式）**
+- ⚠️ **清单格式（2026-08-17 变更）**：停用 = 从 mod_load_order.txt 移除（不再写 `--ModName` 注释行），清单只含启用中的 mod 与说明注释；旧式禁用标记在保存/导入时自动清理。代价：停用再启用排到末尾、顺序不保留。改启停相关逻辑先看 core/load_order.py（normalize_entries 丢弃精确禁用行、set_load_order 不生成禁用行）+ app.py 的 api_toggle/api_mods_batch（幂等：enable 追加、disable 移除）。
 
 **导入导出**：
 - 「＋ 导入」一个入口 → 自动识别：单 mod / 整合包 / 清单 txt / **文件夹**（pywebview 原生目录选择）

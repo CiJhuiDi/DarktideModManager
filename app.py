@@ -735,7 +735,7 @@ def api_load_order_preview(body: LoadOrderPreviewBody):
 @app.post("/api/load_order/import")
 def api_load_order_import(body: LoadOrderImportBody):
     """导入启停清单：用提供的清单内容替换当前 mod_load_order.txt（先备份）。
-    自动过滤空行/注释，只保留 mod 行（与现有格式兼容）。"""
+    过滤空行与旧式禁用标记（--ModName，停用 = 不在清单），保留 mod 行与说明注释。"""
     g = guard_game_running("导入清单")
     if g:
         return g
@@ -743,15 +743,14 @@ def api_load_order_import(body: LoadOrderImportBody):
         return {"ok": False, "error": "mods 目录不存在"}
     content = (body.content or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = [ln.strip() for ln in content.split("\n")]
-    # 保留注释（--开头）与 mod 行，过滤纯空行
+    # 过滤空行与旧式禁用标记（--ModName）；保留说明注释与 mod 行
     keep = []
     for ln in lines:
         if not ln:
             continue
-        if ln.startswith("--"):
-            keep.append(ln)  # 保留注释行（如禁用标记 --ModName）
-        else:
-            keep.append(ln)
+        if ln.startswith("--") and is_exact_disable(ln):
+            continue  # 旧式禁用标记：停用 = 不在清单，清理
+        keep.append(ln)
     if not keep:
         return {"ok": False, "error": "清单内容为空或无效"}
     backup_load_order()
@@ -858,12 +857,12 @@ def api_toggle(name: str):
     entries = read_load_order()
     idx = next((i for i, e in enumerate(entries) if e["kind"] == "mod" and e["name"] == name), None)
     if idx is not None:
-        entries[idx] = {"kind": "comment", "raw": "--" + entries[idx]["raw"]}
+        entries.pop(idx)  # 停用 = 从清单移除（清单只含启用中的 mod）
     else:
         idx = next((i for i, e in enumerate(entries)
                     if e["kind"] == "comment" and e["raw"].strip() == "--" + name), None)
         if idx is not None:
-            entries[idx] = {"kind": "mod", "raw": name, "name": name}
+            entries[idx] = {"kind": "mod", "raw": name, "name": name}  # 兼容旧注释标记
         else:
             entries.append({"kind": "mod", "raw": name, "name": name})
     write_load_order(entries)
@@ -894,35 +893,37 @@ def api_mods_batch(body: BatchBody):
 
     done, failed = [], []
     if body.action in ("enable", "disable"):
-        # 批量启停：直接操作清单设置目标状态（比逐个 toggle 更稳）
+        # 批量启停：新模型下停用 = 从清单移除、启用 = 追加/恢复，均为幂等
         want_enabled = (body.action == "enable")
         entries = read_load_order()
-        # 收集已知 mod（含精确禁用行）
-        known = set()
-        for e in entries:
-            if e["kind"] == "mod":
-                known.add(e["name"])
-            elif e["kind"] == "comment" and is_exact_disable(e["raw"]):
-                known.add(e["raw"].strip()[2:].strip())
+        on = {e["name"] for e in entries if e["kind"] == "mod"}  # 当前启用中的 mod
         changed = False
         for name in names:
-            if name not in known:
-                failed.append({"name": name, "error": "清单中没有该 mod"})
-                continue
             if want_enabled:
-                # 找禁用行移除
+                # 启用：已在启用列表 → 跳过；有旧注释标记 → 原位恢复；否则追加
+                if name in on:
+                    done.append(name)
+                    continue
+                found = False
                 for i, e in enumerate(entries):
                     if e["kind"] == "comment" and e["raw"].strip() == "--" + name:
                         entries[i] = {"kind": "mod", "raw": name, "name": name}
+                        found = True
                         changed = True
                         break
+                if not found:
+                    entries.append({"kind": "mod", "raw": name, "name": name})
+                    changed = True
+                on.add(name)
             else:
-                # 找启用行转禁用
-                for i, e in enumerate(entries):
-                    if e["kind"] == "mod" and e["name"] == name:
-                        entries[i] = {"kind": "comment", "raw": "--" + name}
-                        changed = True
-                        break
+                # 停用：在启用列表 → 移除；不在 → 本来就停用，跳过（幂等）
+                if name in on:
+                    for i, e in enumerate(entries):
+                        if e["kind"] == "mod" and e["name"] == name:
+                            entries.pop(i)
+                            changed = True
+                            break
+                    on.discard(name)
             done.append(name)
         if changed:
             write_load_order(entries)

@@ -74,8 +74,8 @@ print("== file content after order ==")
 lines = open(MOCK_MODS / "mod_load_order.txt",
              encoding="utf-8").read().splitlines()
 check("comment header preserved", any(l.startswith("-- 测试注释行") for l in lines))
-check("disabled_by_comment preserved", any(l.startswith("--disabled_by_comment") for l in lines))
-check("B commented out", "--TestModB" in lines, lines)
+check("disabled_by_comment cleaned", not any(l.startswith("--disabled_by_comment") for l in lines), lines)
+check("B removed from file", "TestModB" not in lines and "--TestModB" not in lines, lines)
 
 print("== profiles ==")
 r = call("POST", "/api/profiles", {"name": "打宝流"})

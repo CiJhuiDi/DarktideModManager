@@ -32,13 +32,13 @@ content = 'TestModC\n--TestModA\nTestModB\n'
 r = app.api_load_order_import(app.LoadOrderImportBody(content=content))
 test('导入 ok', r.get('ok'), r.get('message'))
 lines = lo.read_text(encoding='utf-8').splitlines()
-test('清单已替换', set(lines) == {'TestModC', '--TestModA', 'TestModB'}, lines)
+test('清单已替换（旧式禁用标记被清理）', set(lines) == {'TestModC', 'TestModB'}, lines)
 
 print('=== 带空行/CRLF 清洗 ===')
 r = app.api_load_order_import(app.LoadOrderImportBody(content='TestModA\r\n\r\n--TestModB\r\n'))
 test('CRLF+空行清洗 ok', r.get('ok'))
 lines = lo.read_text(encoding='utf-8').splitlines()
-test('空行被过滤', '' not in lines and set(lines) == {'TestModA', '--TestModB'}, lines)
+test('空行被过滤（旧式禁用标记被清理）', '' not in lines and set(lines) == {'TestModA'}, lines)
 
 print('=== 空内容拒绝 ===')
 r = app.api_load_order_import(app.LoadOrderImportBody(content='  \n\n'))
