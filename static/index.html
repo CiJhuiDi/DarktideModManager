@@ -1536,6 +1536,8 @@
         cb.addEventListener('change', () => {
           li.classList.toggle('enabled-row', cb.checked);
           li.classList.toggle('disabled', !cb.checked);
+          const m = mods.find(x => x.name === li.dataset.name);
+          if (m) m.enabled = cb.checked;  // 同步数据：collectEnabledOrder 第 2 步用最新状态，否则停用会被“被过滤隐藏”逻辑加回
           setDirty(true);
         });
         const slider = document.createElement('span'); slider.className = 'slider';

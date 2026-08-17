@@ -11,6 +11,7 @@
 ## 待定（未发布）
 
 **修复**
+- 修复：mod 只能启用不能停用——保存时「被过滤隐藏的启用 mod」逻辑（collectEnabledOrder 第 2 步）读的是渲染时的数据快照，取消勾选后 checkbox 只改 DOM 不同步数据，被停用的 mod 又被加回启用列表；现 checkbox 变更同步进 mods 数据，停用/启用/过滤场景均正确
 - 修复：游戏关闭后 mod 启停开关仍保持禁用（启动游戏按钮已恢复，但 checkbox 仍灰锁，无法停用/启用 mod）——轮询更新游戏运行状态后只刷新了部分按钮，mod 列表开关的禁用态在渲染时写死不随状态同步；现改为 `updateEditLocks` 直接同步列表开关禁用态，不依赖整表重渲染
 - 修复：游戏运行中仍可拖拽排序 mod 行（保存会被后端守卫拒绝，体验不一致）——Sortable 拖拽在游戏运行中禁止（onMove 拦截），与其它写操作防呆一致
 - 工具：新增 `tools/set_alpha_state.py`（正式态 vX.Y.Z → Alpha 测试态一键切换，与 build_release 的恢复逻辑镜像）；build_alpha 增加 stdout/stderr UTF-8 重配置，修复 GBK 控制台打印 emoji 崩溃
