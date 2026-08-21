@@ -21,7 +21,7 @@ PHASE_A = [  # tools/ 直接 import 套件（污染 mock 的启停状态，放�
     'test_backup_preview.py', 'test_batch.py', 'test_classify.py', 'test_deps.py',
     'test_dmf_force.py', 'test_export.py', 'test_folder_import.py', 'test_guard.py',
     'test_load_order.py', 'test_load_order_backup.py', 'test_load_order_preview.py',
-    'test_order_hint.py', 'test_preview.py', 'test_prune.py', 'test_simulate.py',
+    'test_order_hint.py', 'test_preview.py', 'test_prune.py', 'test_quotes.py', 'test_simulate.py',
     'test_theme.py', 'test_theme_custom.py',
 ]
 PHASE_C = ['test_dmf.py', 'test_backups.py', 'test_pack.py']  # 根目录，独立 mock 目录

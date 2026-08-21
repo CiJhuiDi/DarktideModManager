@@ -35,29 +35,77 @@ def patch_state() -> dict:
     }
 
 
+def _darktide_running_via_snapshot() -> bool:
+    """用 CreateToolhelp32Snapshot 枚举进程（<5ms），替代 tasklist 子进程（~350ms）。
+    status 每 10s 轮询一次，tasklist 起进程的开销没必要。"""
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(wintypes.ULONG)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_wchar * 260),
+        ]
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == wintypes.HANDLE(-1).value:
+        return False
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        if not kernel32.Process32FirstW(snap, ctypes.byref(entry)):
+            return False
+        while True:
+            if entry.szExeFile.lower() == "darktide.exe":
+                return True
+            if not kernel32.Process32NextW(snap, ctypes.byref(entry)):
+                return False
+    finally:
+        kernel32.CloseHandle(snap)
+
+
+def _game_running_impl() -> bool:
+    """真实进程检测：优先快照 API（<5ms），异常回退 tasklist（兼容性兜底）"""
+    try:
+        return _darktide_running_via_snapshot()
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                             capture_output=True, timeout=10,
+                             creationflags=subprocess.CREATE_NO_WINDOW).stdout
+        return "Darktide.exe" in out.decode("gbk", errors="ignore")
+    except Exception:
+        return False
+
+
 def is_game_running() -> bool:
     """真实检测：进程列表里有 Darktide.exe 即运行中。
     测试模式：simulate_game_running=True 时直接返回 True（用于模拟环境测试防呆，不用真开游戏）。"""
     if state.load_config().get("simulate_game_running"):
         return True
-    try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                             capture_output=True, timeout=10,
-                             creationflags=subprocess.CREATE_NO_WINDOW).stdout
-        return "Darktide.exe" in out.decode("gbk", errors="ignore")
-    except Exception:
-        return False
+    return _game_running_impl()
 
 
 def is_game_running_real() -> bool:
     """只看真实进程，不看模拟开关"""
-    try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
-                             capture_output=True, timeout=10,
-                             creationflags=subprocess.CREATE_NO_WINDOW).stdout
-        return "Darktide.exe" in out.decode("gbk", errors="ignore")
-    except Exception:
-        return False
+    return _game_running_impl()
 
 
 def autopatch_path() -> Path:

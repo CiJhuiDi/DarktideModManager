@@ -107,6 +107,39 @@ showModal({ title: '预览', html: logHtml, ultra: true, extra: [{text:'导出',
 | `mod-tip` | 通用悬停信息浮层（fixed，面板 + accent 边框，pointer-events:none，防溢出定位） |
 | `tip-desc` / `tip-err` | 浮层内描述 / 错误文字 |
 
+## 八·五、语录栏（暗潮加载画面语录）
+
+| 类 | 用途 |
+|---|---|
+| `quote-bar` | 底部语录栏容器（flex + 相对定位，面板背景 + 毛玻璃，hover 高亮，cursor:pointer） |
+| `.q-ico` | 左侧图标（📜，flex-shrink:0，z-index:1 盖在文本层上） |
+| `.q-text` | 语录文本（**绝对定位铺满整栏，flex 居中**，ellipsis 防溢出） |
+| `.q-count` | 右侧进度（第 n/310 条，dim 小字，margin-left:auto + z-index:1） |
+
+示例：
+```html
+<div class="quote-bar" id="quoteBar">
+  <span class="q-ico">📜</span>
+  <span class="q-text" id="quoteText">帝皇庇佑</span>
+  <span class="q-count" id="quoteCount">第 1/310 条</span>
+</div>
+```
+
+触发规则：每进行一次操作（全局捕获 click，200ms 同元素去重）+ Sortable onEnd 换一条；
+点击语录栏本身 = 手动换；数据来自 `GET /api/quotes`（core/quotes.py，310 条官方文本），
+前端洗牌轮换、一轮播完重新洗牌。
+
+## 八·六、启动骨架屏
+
+| 类 | 用途 |
+|---|---|
+| `.boot-loading` | 全屏覆盖层（fixed + inset:0 + z-index:9999，flex 居中，背景用 `var(--bg)` 兜底） |
+| `.boot-spinner` | 旋转加载圈（36px，`border-top-color: var(--accent)`，0.9s 线性旋转动画） |
+| `.boot-text` | 文案（"正在加载 Mod 列表…"，`var(--dim)` 小字） |
+
+结构：`<div id="bootLoading">` 放 body 首子元素（**在主题内联之后**，首帧即正确配色）；
+JS 首次 load() 成功后移除，10s 超时兜底（`setTimeout` 强制移除防永久白屏）。
+
 ## 九、布局规范
 
 - 工具栏：`display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 14px`

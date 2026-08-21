@@ -12,6 +12,7 @@ from pathlib import Path
 from core import state
 from core import patch
 from core.load_order import enabled_names, read_load_order, write_load_order
+from core.mods import invalidate_scan_cache
 
 
 # ---------------------------------------------------------------- mod 导入
@@ -199,6 +200,7 @@ def import_mod_from_dir(out: Path, filename: str, force_mod: bool = False) -> di
     if added:
         entries.append({"kind": "mod", "raw": real_name, "name": real_name})
         write_load_order(entries)
+    invalidate_scan_cache()  # mods 目录内容变了，强制下次扫描重建元数据缓存
     return {"file": filename, "ok": True, "mod": real_name, "added_to_load_order": added}
 
 
@@ -477,6 +479,7 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> di
         pruned = prune_backups()
         if pruned:
             msg += f"（已清理 {len(pruned)} 个旧备份）"
+        invalidate_scan_cache()  # mods 目录内容变了，强制下次扫描重建元数据缓存
         return {"file": filename, "ok": True, "message": msg,
                 "mods": added, "replaced": replaced, "archived": archived,
                 "root_files": root_files, "load_order": lo_src.is_file(), "mode": mode}

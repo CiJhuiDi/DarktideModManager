@@ -417,6 +417,27 @@
     border-top: 1px solid var(--border); flex-shrink: 0;
     backdrop-filter: blur(10px);
   }
+
+  /* ---------- 语录栏（暗潮加载画面语录，每操作一次换一条） ---------- */
+  .quote-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 5px 16px; flex-shrink: 0; cursor: pointer;
+    background: var(--panel); border-top: 1px solid var(--border);
+    backdrop-filter: blur(10px); font-size: 12.5px;
+    transition: background .15s; position: relative;
+  }
+  .quote-bar:hover { background: var(--panel2); }
+  .quote-bar .q-ico { flex-shrink: 0; font-size: 13px; position: relative; z-index: 1; }
+  .quote-bar .q-text {
+    position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: var(--text);
+  }
+  .quote-bar .q-count {
+    flex-shrink: 0; font-size: 11.5px; color: var(--dim);
+    position: relative; z-index: 1; margin-left: auto;
+  }
   .statusbar .stats { font-size: 12px; color: var(--dim); }
   .statusbar .stats b { color: var(--text); font-weight: 600; }
   .dirty {
@@ -477,8 +498,7 @@
     font-size: 12px; line-height: 1.55; color: var(--text);
     box-shadow: 0 8px 24px rgba(0, 0, 0, .5); pointer-events: none;
   }
-  .mod-tip .tip-desc { color: var(--dim); }
-  .mod-tip .tip-err { color: #ff8a8a; }
+  .mod-tip .tip-desc { color: var(--dim); }  .mod-tip .tip-err { color: #ff8a8a; }
   .log-line.err { color: #ff8a8a; background: rgba(255, 90, 90, .08); }
   .log-line.warn { color: #ffd27a; background: rgba(255, 200, 80, .07); }
   .modal-line.ml-add { color: #7ee2a8; background: rgba(62,207,142,.08); }
@@ -542,9 +562,27 @@
   }
   .link-btn:hover { border-color: var(--accent); }
   .dim { color: var(--dim); }
+/* 启动骨架屏 */
+.boot-loading {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: var(--bg, #0d1117);
+}
+.boot-spinner {
+  width: 36px; height: 36px;
+  border: 3px solid rgba(128,128,128,.22); border-top-color: var(--accent, #c8a24b);
+  border-radius: 50%; animation: boot-spin .9s linear infinite;
+}
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+.boot-text { color: var(--dim, #8b949e); font-size: 13px; letter-spacing: 1px; }
 </style>
 </head>
 <body data-theme="abyss" data-grad="diag">
+  <!-- 启动骨架屏：JS 就绪后移除；覆盖页面加载到数据就绪之间的空白，避免白屏焦虑 -->
+  <div id="bootLoading" class="boot-loading">
+    <div class="boot-spinner"></div>
+    <div class="boot-text">正在加载 Mod 列表…</div>
+  </div>
   <!-- 顶栏 -->
   <header class="titlebar">
     <div class="logo"></div>
@@ -561,7 +599,7 @@
       <button data-view="backups"><span class="icon">↺</span>备份</button>
       <button data-view="about"><span class="icon">i</span>关于</button>
       <button data-view="log" id="btnNavLog" title="实验功能" style="display:none"><span class="icon">🔬</span>日志预览<span class="tab-x" id="btnNavLogClose" title="关闭日志预览">✕</span></button>
-      <div class="foot"><div class="foot-ver">DMM v0.4.1</div><div class="foot-name">暗潮 MOD 管理器</div></div>
+      <div class="foot"><div class="foot-ver">DMM Alpha</div><div class="foot-name">暗潮 MOD 管理器</div></div>
     </nav>
 
     <main class="content">
@@ -746,6 +784,13 @@
     </main>
   </div>
 
+  <!-- 语录栏：暗潮加载画面语录，每进行一次操作换一条（点击也可手动换） -->
+  <div class="quote-bar" id="quoteBar">
+    <span class="q-ico">📜</span>
+    <span class="q-text" id="quoteText">帝皇庇佑</span>
+    <span class="q-count" id="quoteCount">第 1/310 条</span>
+  </div>
+
   <!-- 状态栏 -->
   <footer class="statusbar">
     <span class="stats" id="stats">共 0 · 启用 0</span>
@@ -791,6 +836,8 @@
   <script>
     const $ = id => document.getElementById(id);
     const listEl = $('modList'), toastEl = $('toast'), searchEl = $('search');
+    // 骨架屏超时兜底：无论加载成败，10 秒后移除，避免永久白屏
+    setTimeout(() => { const b = document.getElementById('bootLoading'); if (b) b.remove(); }, 10000);
     const btnSave = $('btnSaveMods'), btnRevert = $('btnRevert'), dirtyEl = $('dirty');
     let mods = [], dirty = false, filter = 'all', keyword = '';
     let depInfo = { missing: [], cycles: [], order_hints: [], total: 0, bad: 0 };
@@ -1431,15 +1478,24 @@
     $('btnBatchExit').addEventListener('click', () => exitBatchMode());
 
     /* 依赖徽标：缺依赖（红）/ 循环依赖（橙）/ 顺序提示（蓝） */
+    /* 依赖索引：deps/check 返回后预构建 O(1) 查询，避免 render 时逐 mod 全表 filter（O(n²)） */
+    let depIndex = { missByMod: {}, cycleSet: new Set(), hintByMod: {} };
+    function buildDepIndex() {
+      const idx = { missByMod: {}, cycleSet: new Set(), hintByMod: {} };
+      (depInfo.missing || []).forEach(x => { (idx.missByMod[x.mod] ||= []).push(x.needs); });
+      (depInfo.cycles || []).forEach(c => c.forEach(n => idx.cycleSet.add(n)));
+      (depInfo.order_hints || []).forEach(h => idx.hintByMod[h.ext] = h);
+      depIndex = idx;
+    }
     function depBadgesFor(name) {
       const badges = [];
-      const miss = depInfo.missing.filter(x => x.mod === name);
-      const inCycle = depInfo.cycles.some(c => c.includes(name));
-      const orderHint = depInfo.order_hints.find(x => x.ext === name);
+      const miss = depIndex.missByMod[name] || [];
+      const inCycle = depIndex.cycleSet.has(name);
+      const orderHint = depIndex.hintByMod[name];
       if (miss.length) {
         const b = document.createElement('span');
         b.className = 'dep-badge dep-bad';
-        b.textContent = `🔴 缺依赖:${miss.map(x => x.needs).join(',')}`;
+        b.textContent = `🔴 缺依赖:${miss.join(',')}`;
         b.title = '缺少依赖库，该 mod 可能无法工作';
         badges.push(b);
       }
@@ -1525,6 +1581,7 @@
       }
       const orderMap = {};
       enabled.forEach((m, i) => orderMap[m.name] = i + 1);
+      const frag = document.createDocumentFragment();  // 批量插入，避免逐行触发 reflow
       for (const m of [...enabled, ...disabled]) {
         const li = document.createElement('li');
         li.className = 'mod-row' + (m.enabled ? ' enabled-row' : ' disabled') + (m.missing ? ' missing' : '');
@@ -1572,8 +1629,9 @@
         hint.textContent = '⠿';
 
         li.append(sw, main, ord, hint);
-        listEl.appendChild(li);
+        frag.appendChild(li);
       }
+      listEl.appendChild(frag);
       updateBatchBar();
     }
     searchEl.addEventListener('input', () => { keyword = searchEl.value.trim(); render(); $('btnClearSearch').style.display = searchEl.value ? '' : 'none'; });
@@ -2192,18 +2250,27 @@
       }
     }
 
-    /* ---------- mod 悬停提示（详细描述） ---------- */
+    /* ---------- mod 悬停提示（详细描述，懒加载） ---------- */
     const modTip = document.createElement('div');
     modTip.className = 'mod-tip';
     modTip.style.display = 'none';
     document.body.appendChild(modTip);
     let modTipTimer = null;
+    const descCache = {};  // name -> description（''=无描述），悬停懒加载缓存
+    function fetchModDesc(m) {
+      if (m.description) return Promise.resolve(m.description);  // 数据里已有（兼容旧后端）
+      if (descCache[m.name] !== undefined) return Promise.resolve(descCache[m.name]);
+      descCache[m.name] = null;  // 防重入
+      return api('/api/mods/' + encodeURIComponent(m.name) + '/detail')
+        .then(r => { const d = (r && r.ok && r.description) ? r.description : ''; descCache[m.name] = d; return d; })
+        .catch(() => { descCache[m.name] = ''; return ''; });
+    }
     function showModTip(m, x, y) {
       const parts = [];
       parts.push(`<b>${escHtml(m.display_name || m.name)}</b>` +
         (m.name !== m.display_name ? ` <span class="dim">${escHtml(m.name)}</span>` : ''));
       if (m.version) parts.push(`版本：${escHtml(m.version)}`);
-      if (m.description) parts.push(`<div class="tip-desc">${escHtml(m.description)}</div>`);
+      parts.push('<div class="tip-desc">描述加载中…</div>');
       if (m.note) parts.push(`备注：${escHtml(m.note)}`);
       if (m.dependencies && m.dependencies.length) parts.push(`依赖：${escHtml(m.dependencies.join(', '))}`);
       if (m.missing) parts.push('<span class="tip-err">⚠ 文件夹缺失（残留）</span>');
@@ -2216,6 +2283,17 @@
       if (ty + rect.height > window.innerHeight - 8) ty = y - rect.height - 14;
       modTip.style.left = tx + 'px';
       modTip.style.top = ty + 'px';
+      // 描述懒加载：拿到后若浮层还开着且还是这个 mod，替换占位（空描述也替换，避免一直“加载中”)
+      modTip.dataset.name = m.name;
+      fetchModDesc(m).then(d => {
+        if (modTip.style.display === 'block' && modTip.dataset.name === m.name) {
+          const el = modTip.querySelector('.tip-desc');
+          if (el) {
+            el.textContent = d || '（无描述）';
+            if (!d) el.style.opacity = '0.6';
+          }
+        }
+      });
     }
     listEl.addEventListener('mouseover', e => {
       const row = e.target.closest('.mod-row');
@@ -2232,6 +2310,7 @@
       if (to && to.closest && to.closest('.mod-row') === row) return;  // 仍在行内
       clearTimeout(modTipTimer);
       modTip.style.display = 'none';
+      modTip.dataset.name = '';  // 防止异步描述回来后更新已关闭的浮层
     });
 
     /* ---------- 右键菜单（mod 行） ---------- */
@@ -2370,7 +2449,12 @@
 
     /* ---------- 数据 ---------- */
     async function load() {
-      const [modsRes, statusRes] = await Promise.all([api('/api/mods'), api('/api/status')]);
+      const t0 = performance.now();
+      const tApi = {};
+      const [modsRes, statusRes] = await Promise.all([
+        api('/api/mods').then(r => { tApi.mods = Math.round(performance.now() - t0); return r; }),
+        api('/api/status').then(r => { tApi.status = Math.round(performance.now() - t0); return r; })
+      ]);
       mods = modsRes.mods;
       patchInfo = statusRes.patch || { patched: false, tool_exists: false };
       dmfInfo = statusRes.dmf || null;
@@ -2384,11 +2468,26 @@
       $('gameStatus').innerHTML = st2
         ? `<span class="dot"></span>已连接 · ${statusRes.game_dir}`
         : `<span class="dot" style="background:var(--red)"></span>未找到游戏目录 · 请到「关于」页设置`;
+      const t1 = performance.now();
       render();
+      const tRender = Math.round(performance.now() - t1);
       setDirty(false);
+      // 骨架屏移除（首次 load 成功后；10 秒超时兜底见脚本初始化处）
+      if (!window.__bootRemoved) {
+        window.__bootRemoved = true;
+        const boot = document.getElementById('bootLoading');
+        if (boot) boot.remove();
+      }
+      // 首次加载上报启动耗时（写 app.log 排错用；刷新/保存不重复报）
+      if (!window.__perfReported) {
+        window.__perfReported = true;
+        api('/api/perf', { method: 'POST', body: JSON.stringify({
+          load_ms: Math.round(t1 - t0), render_ms: tRender, total_ms: Math.round(performance.now() - t0), api_ms: tApi
+        }) }).catch(() => {});
+      }
       // 依赖检查（不阻塞，失败静默）
       api('/api/deps/check').then(r => {
-        if (r && r.ok) { depInfo = r; renderDepBanner(); render(); }
+        if (r && r.ok) { depInfo = r; buildDepIndex(); renderDepBanner(); render(); }
       }).catch(() => {});
       // 自动装载：补丁未打且未手动禁用时自动补打（幂等）
       try {
@@ -2402,12 +2501,16 @@
     function collectEnabledOrder() {
       const order = [];
       const seen = new Set();
-      // 1. 当前可见且启用的行（含搜索/筛选过滤后的部分，顺序 = 用户拖拽结果）
-      for (const li of listEl.querySelectorAll('.mod-row.enabled-row')) {
-        const name = li.dataset.name;
-        if (!seen.has(name)) { order.push(name); seen.add(name); }
+      // 1. 仅无过滤（搜索词为空且筛选=全部）时，DOM 顺序 = 用户拖拽结果，作为清单顺序基础。
+      //    搜索/筛选生效时视图不完整（只显示匹配子集），DOM 顺序≠完整清单顺序，
+      //    若仍按可见行收集，被搜索并启用的 mod 会被错误排到清单第一位。
+      if (!keyword && filter === 'all') {
+        for (const li of listEl.querySelectorAll('.mod-row.enabled-row')) {
+          const name = li.dataset.name;
+          if (!seen.has(name)) { order.push(name); seen.add(name); }
+        }
       }
-      // 2. 被过滤隐藏但仍为启用状态的 mod（按数据顺序追加，保持原相对顺序，防止"保存后全部被禁用"）
+      // 2. 其余启用 mod（过滤隐藏 / 过滤生效时全部）按数据顺序追加，保持原相对顺序，防止"保存后全部被禁用"
       for (const m of mods) {
         if (m.enabled && !seen.has(m.name)) {
           order.push(m.name);
@@ -2438,7 +2541,7 @@
       ghostClass: 'sortable-ghost',
       chosenClass: 'sortable-chosen',
       onMove: () => !gameRunning,  // 游戏运行中禁止拖拽排序（后端仍有守卫双保险）
-      onEnd: () => setDirty(true)
+      onEnd: () => { setDirty(true); nextQuote(); }
     });
 
     /* ---------- 归档备份 ---------- */
@@ -2690,13 +2793,48 @@
       try {
         const dir = await window.pywebview.api.pick_folder();
         if (!dir) return;
-        const r = await api('/api/settings/game_dir', { method: 'POST', body: JSON.stringify({ path: dir }) });
+        const r = await api('/api/game_dir', { method: 'POST', body: JSON.stringify({ path: dir }) });
         if (r.ok) { toast('目录已保存，立即生效'); loadAbout(); load(); }
         else toast('无效目录：' + r.error);
       } catch (e) { toast('选择失败: ' + e.message); }
     });
+    /* ---------- 语录栏（暗潮加载画面语录） ---------- */
+    const QUOTE_FALLBACK = ['帝皇庇佑', '信仰胜过一切', '憎恶异端', '为了帝皇'];
+    let quotePool = [], quoteOrder = [], quotePos = 0;
+    function shuffleQuote() {
+      quoteOrder = quotePool.slice();
+      for (let i = quoteOrder.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [quoteOrder[i], quoteOrder[j]] = [quoteOrder[j], quoteOrder[i]];
+      }
+      quotePos = 0;
+    }
+    function nextQuote() {
+      if (!quoteOrder.length) return;
+      if (quotePos >= quoteOrder.length) shuffleQuote();  // 一轮播完重新洗牌
+      const q = quoteOrder[quotePos++];
+      const t = $('quoteText'), c = $('quoteCount');
+      if (t) t.textContent = q;
+      if (c) c.textContent = '第 ' + quotePos + '/' + quoteOrder.length + ' 条';
+    }
+    function initQuotes() {
+      api('/api/quotes').then(r => {
+        quotePool = (r && r.quotes && r.quotes.length) ? r.quotes : QUOTE_FALLBACK;
+      }).catch(() => { quotePool = QUOTE_FALLBACK; })
+      .finally(() => { shuffleQuote(); nextQuote(); });
+      // 每进行一次操作换一条语录：全局捕获 click（200ms 内同一元素重复触发算一次，双击不连换）
+      let lastQEl = null, lastQTime = 0;
+      document.addEventListener('click', e => {
+        if (e.target.closest('#quoteBar')) { nextQuote(); return; }  // 点击语录栏 = 手动换
+        const now = Date.now();
+        if (e.target === lastQEl && now - lastQTime < 200) return;
+        lastQEl = e.target; lastQTime = now;
+        nextQuote();
+      }, true);
+    }
     initTheme();
     bindThemeUI();
+    initQuotes();
     load().catch(e => { $('stats').textContent = '加载失败: ' + e.message; });
   </script>
 </body>

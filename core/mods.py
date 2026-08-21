@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """mod 扫描 / 显示名 / 备注 / 依赖解析（纯逻辑，无 FastAPI 依赖）。"""
 import json
+import os
 import re
+import time
 from pathlib import Path
 
 from core import state
@@ -31,7 +33,7 @@ def save_notes(notes: dict):
         pass
 
 
-_DISPLAY_CACHE = {}  # mod名 -> (localization mtime, 显示名, 描述)
+_DISPLAY_CACHE = {}  # mod名 -> (locs_mtime, 显示名, 描述, locs_tuple)；locs 缓存避免重复全树搜索
 
 
 def clean_display_name(s: str) -> str:
@@ -42,6 +44,24 @@ def clean_display_name(s: str) -> str:
     return s.strip()
 
 
+def _find_loc_files(d: Path, maxdepth: int = 4) -> list:
+    """深度受限查找 localization lua 文件（替代 rglob 全树遍历，HDD 上避免全树 IO）。
+    localization 文件一般位于 mod 根 / localization / scripts 下 4 层以内。"""
+    out = []
+    base = str(d)
+    try:
+        for root, dirs, files in os.walk(d, topdown=True):
+            depth = 0 if root == base else root[len(base):].count(os.sep)
+            if depth >= maxdepth:
+                dirs[:] = []  # 剪枝：不再深入
+            for fn in files:
+                if "localization" in fn and fn.endswith(".lua"):
+                    out.append(Path(root) / fn)
+    except Exception:
+        return []
+    return out
+
+
 class _LocInfo:
     __slots__ = ('name', 'desc')
     def __init__(self, name='', desc=''):
@@ -50,20 +70,27 @@ class _LocInfo:
 
 
 def _read_locale(d: Path) -> _LocInfo:
-    """读 localization 文件，提取显示名 + 描述（均优先 zh-cn，其次 en）；带缓存"""
-    try:
-        locs = [f for f in d.rglob("*localization*.lua") if f.is_file()]
-    except Exception:
-        locs = []
+    """读 localization 文件，提取显示名 + 描述（均优先 zh-cn，其次 en）；带缓存。
+    缓存含文件列表：命中后仅 stat 少量文件验证 mtime，不再 rglob 全树遍历。
+    注：新增 localization 文件需重启管理器才生效（低频场景，可接受）。"""
+    hit = _DISPLAY_CACHE.get(d.name)
+    if hit:
+        mt, name, desc, locs = hit
+        if not locs:
+            return _LocInfo(name, desc)
+        try:
+            if max(f.stat().st_mtime for f in locs) == mt:
+                return _LocInfo(name, desc)
+        except Exception:
+            pass
+    locs = _find_loc_files(d)
     if not locs:
+        _DISPLAY_CACHE[d.name] = (0, "", "", ())
         return _LocInfo()
     try:
         mt = max(f.stat().st_mtime for f in locs)
     except Exception:
         mt = 0
-    hit = _DISPLAY_CACHE.get(d.name)
-    if hit and hit[0] == mt:
-        return _LocInfo(hit[1], hit[2])
     info = _LocInfo()
     for loc in locs:
         try:
@@ -90,7 +117,7 @@ def _read_locale(d: Path) -> _LocInfo:
             break
     info.name = clean_display_name(info.name)
     info.desc = clean_display_name(info.desc)
-    _DISPLAY_CACHE[d.name] = (mt, info.name, info.desc)
+    _DISPLAY_CACHE[d.name] = (mt, info.name, info.desc, tuple(locs))
     return info
 
 
@@ -104,31 +131,43 @@ def read_mod_description(d: Path) -> str:
     return _read_locale(d).desc
 
 
-def parse_mod_deps(mod_dir: Path) -> list:
+_DEPS_CACHE = {}  # mod名 -> (mod文件mtime, deps)
+
+
+def parse_mod_deps(mod_dir: Path, content: str | None = None) -> list:
     """解析 .mod 文件声明的库依赖（packages 字段）。
     支持格式：packages = { "lib1", "lib2" } 或 packages = { lib1 = true }。
     注意：packages 里的游戏资源路径（含 / 的 content/wwise 等）是资源声明不是库依赖，跳过。
-    返回依赖名列表（小写规范化）。"""
+    返回依赖名列表（小写规范化）。带 mtime 缓存；content 可由调用方传入避免二次读盘。"""
     deps = []
+    mt = 0
     try:
-        for f in mod_dir.glob("*.mod"):
+        mod_files = list(mod_dir.glob("*.mod"))
+        if not mod_files:
+            return []
+        f = mod_files[0]
+        mt = f.stat().st_mtime
+        hit = _DEPS_CACHE.get(mod_dir.name)
+        if hit and hit[0] == mt:
+            return hit[1]
+        if content is None:
             content = f.read_text(encoding="utf-8", errors="ignore")
-            m = re.search(r'packages\s*=\s*\{([^}]*)\}', content, re.S)
-            if not m:
-                continue
-            body = m.group(1)
-            # 列表形式："lib1", "lib2" / 'lib1', 'lib2'
-            for s in re.findall(r'"([^"]+)"', body):
-                if s.strip():
-                    deps.append(s.strip())
-            for s in re.findall(r"'([^']+)'", body):
-                if s.strip():
-                    deps.append(s.strip())
-            # 表形式：lib1 = true / lib1 = 1
-            for s in re.findall(r'([a-zA-Z_][\w-]*)\s*=\s*(?:true|false|\d)', body):
-                if s.strip():
-                    deps.append(s.strip())
-            break  # 只读第一个 .mod
+        m = re.search(r'packages\s*=\s*\{([^}]*)\}', content, re.S)
+        if not m:
+            _DEPS_CACHE[mod_dir.name] = (mt, [])
+            return []
+        body = m.group(1)
+        # 列表形式："lib1", "lib2" / 'lib1', 'lib2'
+        for s in re.findall(r'"([^"]+)"', body):
+            if s.strip():
+                deps.append(s.strip())
+        for s in re.findall(r"'([^']+)'", body):
+            if s.strip():
+                deps.append(s.strip())
+        # 表形式：lib1 = true / lib1 = 1
+        for s in re.findall(r'([a-zA-Z_][\w-]*)\s*=\s*(?:true|false|\d)', body):
+            if s.strip():
+                deps.append(s.strip())
     except Exception:
         pass
     # 过滤：跳过游戏资源路径（含 / 或 \ 的 content/wwise/units 等），去重保序
@@ -140,6 +179,8 @@ def parse_mod_deps(mod_dir: Path) -> list:
         if dl not in seen:
             seen.add(dl)
             out.append(dl)
+    if mt:
+        _DEPS_CACHE[mod_dir.name] = (mt, out)
     return out
 
 
@@ -147,37 +188,16 @@ def scan_mods() -> list:
     entries = read_load_order()
     enabled = enabled_names(entries)
     enabled_set = set(enabled)
-    result = []
     seen = set()
-
-    if state.MODS_DIR.is_dir():
-        for d in sorted(state.MODS_DIR.iterdir()):
-            if not d.is_dir() or d.name in state.SYSTEM_MODS:
-                continue
-            if ".bak_" in d.name:
-                continue  # 导入备份残留目录，不当 mod 显示
-            name = d.name
-            seen.add(name)
-            version = ""
-            try:
-                for f in d.glob("*.mod"):
-                    m = re.search(r'version\s*=\s*"([^"]+)"', f.read_text(encoding="utf-8", errors="ignore"))
-                    if m:
-                        version = m.group(1)
-                        break
-            except Exception:
-                pass
-            result.append({
-                "name": name,
-                "display_name": read_display_name(d),
-                "description": read_mod_description(d),
-                "note": load_notes().get(name, ""),
-                "version": version,
-                "enabled": name in enabled_set,
-                "order": enabled.index(name) if name in enabled_set else None,
-                "missing": False,
-                "dependencies": parse_mod_deps(d),
-            })
+    result = []
+    # 磁盘元数据走缓存（30s TTL + 目录 mtime 签名自动失效），enabled/order 每次现算
+    for meta in _scan_meta():
+        name = meta["name"]
+        seen.add(name)
+        m = dict(meta)
+        m["enabled"] = name in enabled_set
+        m["order"] = enabled.index(name) if name in enabled_set else None
+        result.append(m)
 
     # 清单里有但磁盘上找不到的（用户删了文件夹）
     for i, n in enumerate(enabled):
@@ -186,3 +206,67 @@ def scan_mods() -> list:
 
     result.sort(key=lambda x: (x["enabled"] is False, x["order"] if x["order"] is not None else 10**9))
     return result
+
+
+_META_TTL = 30.0  # 元数据缓存 30s（游戏运行时刷新/轮询不再扫盘；写操作会显式失效 + 目录 mtime 自动失效）
+_meta_cache = {"t": 0.0, "sig": None, "mods_dir": None, "data": None}
+
+
+def invalidate_scan_cache():
+    """mods 目录内容变化时调用（导入/删除/恢复备份/改备注后），强制下次扫描重建元数据缓存"""
+    _meta_cache["t"] = 0.0
+
+
+def _mods_dir_sig() -> int:
+    """mods 目录变更签名（直接子项增删时 mtime 变化）"""
+    try:
+        return state.MODS_DIR.stat().st_mtime_ns
+    except Exception:
+        return -1
+
+
+def _scan_meta() -> list:
+    """扫描磁盘 mod 元数据（显示名/描述/版本/依赖）——重活，带 30s TTL + 目录 mtime 签名缓存。
+    enabled/order 不在缓存内（每次从 load_order 现算）。"""
+    now = time.monotonic()
+    sig = _mods_dir_sig()
+    c = _meta_cache
+    if (c["data"] is not None and now - c["t"] < _META_TTL
+            and c["sig"] == sig and c["mods_dir"] == state.MODS_DIR):
+        return c["data"]
+
+    metas = []
+    if state.MODS_DIR.is_dir():
+        for d in sorted(state.MODS_DIR.iterdir()):
+            if not d.is_dir() or d.name in state.SYSTEM_MODS:
+                continue
+            if ".bak_" in d.name:
+                continue  # 导入备份残留目录，不当 mod 显示
+            # .mod 文件只读一次：version + packages 一起解析（content 复用避免二次读盘）
+            mod_content = ""
+            try:
+                for f in d.glob("*.mod"):
+                    mod_content = f.read_text(encoding="utf-8", errors="ignore")
+                    break
+            except Exception:
+                pass
+            version = ""
+            if mod_content:
+                m = re.search(r'version\s*=\s*"([^"]+)"', mod_content)
+                if m:
+                    version = m.group(1)
+            loc = _read_locale(d)
+            metas.append({
+                "name": d.name,
+                "display_name": loc.name,
+                # description 不进列表接口（悬停浮层懒加载走 /api/mods/{name}/detail，减首屏体积）
+                "note": load_notes().get(d.name, ""),
+                "version": version,
+                "missing": False,
+                "dependencies": parse_mod_deps(d, mod_content or None),
+            })
+    c["t"] = now
+    c["sig"] = sig
+    c["mods_dir"] = state.MODS_DIR
+    c["data"] = metas
+    return metas

@@ -44,6 +44,19 @@ st = call("GET", "/api/status")
 check("status points to mock", "mock" in st.get("game_dir", ""), st)
 check("total=4 mods", st.get("total") == 4, st)
 
+print("== game_dir ==")
+# 手动设置游戏目录（对应前端「选择文件夹」btnPickDir → POST /api/game_dir）
+r = call("POST", "/api/game_dir", {"path": str(BASE / "mock")})
+check("set game_dir ok", r.get("ok") is True, r)
+check("game_dir saved", str(BASE / "mock") in str(r.get("path", "")), r)
+st = call("GET", "/api/status")
+check("status reflects game_dir", str(BASE / "mock") in st.get("game_dir", ""), st)
+r = call("POST", "/api/game_dir", {"path": "C:\\nonexistent_dir_xyz"})
+check("nonexistent dir rejected", r.get("ok") is False, r)
+# 恢复默认（无残留）
+r = call("POST", "/api/game_dir", {"path": str(BASE / "mock")})
+check("restore game_dir", r.get("ok") is True, r)
+
 print("== initial mods ==")
 mods = call("GET", "/api/mods")["mods"]
 names = {m["name"]: m for m in mods}

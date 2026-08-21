@@ -4,6 +4,7 @@
 只做壳：读/写 mods/mod_load_order.txt，调用 dtkit-patch，不管 mod 加载逻辑。
 """
 import json
+import logging
 import random
 import io
 import os
@@ -33,7 +34,8 @@ from core.patch import (patch_state, is_game_running, is_game_running_real,
                   autopatch_path, autopatch_off_path, auto_patch_disabled,
                   set_auto_patch_disabled, auto_patch_if_needed,
                   guard_game_running, _run_patch, CREATE_NO_WINDOW)
-from core.mods import (load_notes, save_notes, scan_mods)
+from core.mods import (load_notes, save_notes, scan_mods, invalidate_scan_cache,
+                  read_mod_description)
 from core.imports import (import_mod_archive, import_mod_from_dir,
                      preview_pack_archive, import_pack_archive, _scan_mods_dir,
                      diff_mods, _fmt_ts, prune_backups, export_pack)
@@ -41,6 +43,7 @@ from core.dmf import dmf_state, install_dmf
 from core.crash import router as crash_router
 from core.theme import router as theme_router, custom_theme_state
 from core.profiles import router as profiles_router, profile_path
+from core.quotes import QUOTES
 
 THEMES = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor")
 
@@ -71,13 +74,55 @@ _MUTEX_NAME = "Local\\DarktideModManager_Mutex"
 _mutex_handle = None
 
 
-def acquire_single_instance() -> bool:
-    """返回 False 表示已有实例在运行（use_last_error 保证 get_last_error 可靠）"""
+def acquire_single_instance(wait: float = 2.0) -> bool:
+    """返回 False 表示已有实例在运行（use_last_error 保证 get_last_error 可靠）。
+    已有实例时先尝试聚焦其窗口（真多开直接拒绝，不等）；若窗口已消失（旧实例
+    正在退出、互斥体尚未释放），短暂等待重试，超时才判为多开拦截。"""
     global _mutex_handle
     import ctypes
+    import time
     kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-    _mutex_handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
-    return ctypes.get_last_error() != 183  # ERROR_ALREADY_EXISTS
+    deadline = time.time() + wait
+    while True:
+        _mutex_handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+        if ctypes.get_last_error() != 183:  # 非 ERROR_ALREADY_EXISTS = 获得所有权
+            return True
+        # 已存在：释放本次句柄（无所有权），先试聚焦已有窗口，失败则等旧进程退出后重试
+        kernel32.CloseHandle(_mutex_handle)
+        _mutex_handle = None
+        if focus_existing_window():
+            return False
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.3)
+
+
+def release_single_instance():
+    """窗口关闭后主动释放互斥体：进程退出有延迟（Python 清理 + WebView2 子进程收尾），
+    不释放会导致关窗后立刻重启被误判为多开。释放后进程退出时 OS 不会二次关闭。"""
+    global _mutex_handle
+    if _mutex_handle:
+        try:
+            ctypes.WinDLL('kernel32').CloseHandle(_mutex_handle)
+        except Exception:
+            pass
+        _mutex_handle = None
+
+
+def cleanup_webview_children():
+    """窗口关闭后主动结束本实例的 WebView2 子进程（msedgewebview2.exe），加速用户数据目录锁释放。
+    否则关窗后立刻重启时，新实例的 WebView2 要等旧进程释放锁——曾实测干等 47 秒。"""
+    try:
+        import psutil
+        me = psutil.Process()
+        for child in me.children(recursive=True):
+            try:
+                if child.name().lower() == "msedgewebview2.exe":
+                    child.kill()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def focus_existing_window(title: str = "暗潮 Mod 管理器") -> bool:
@@ -135,17 +180,48 @@ def api_status():
         "game_dir_valid": valid,
         "mods_dir": str(state.MODS_DIR),
         "load_order_exists": state.LOAD_ORDER_FILE.exists() if state.LOAD_ORDER_FILE else False,
-        "total": len(scan_mods()),
+        "total": _mods_dir_count(),  # 轻量计数，不触发 scan_mods（轮询每 10s 一次，别白扫）
         "enabled": len(enabled_names(read_load_order())),
         "profiles_dir": str(state.PROFILES_DIR),
         "patch": patch_state(),
-        "game_running": is_game_running(),
+        "game_running": is_game_running(),  # 快照 API 检测 <5ms，轮询无压力
         "simulated_game_running": bool(load_config().get("simulate_game_running")),
         "theme": load_config().get("theme", "abyss"),
         "grad": load_config().get("grad", "diag"),
         "custom_theme": custom_theme_state(),
         "dmf": dmf_state(),
     }
+
+
+def _mods_dir_count() -> int:
+    """轻量 mod 数量：只枚举目录，不读 localization/依赖（供 status 展示）"""
+    try:
+        return sum(1 for d in state.MODS_DIR.iterdir()
+                   if d.is_dir() and d.name not in state.SYSTEM_MODS and ".bak_" not in d.name)
+    except Exception:
+        return 0
+
+
+class PerfBody(BaseModel):
+    load_ms: int = 0        # 页面 JS 启动 → 主数据接口返回
+    render_ms: int = 0      # render() 渲染耗时
+    total_ms: int = 0       # 页面加载 → 渲染完成总耗时
+    api_ms: dict = {}       # 各接口耗时
+
+
+@app.post("/api/perf")
+def api_perf(body: PerfBody):
+    """前端启动耗时上报（写 app.log 排错用，不影响功能）"""
+    logging.getLogger().info(
+        f"前端启动耗时: load={body.load_ms}ms render={body.render_ms}ms total={body.total_ms}ms "
+        f"api={json.dumps(body.api_ms, ensure_ascii=False)}")
+    return {"ok": True}
+
+
+@app.get("/api/quotes")
+def api_quotes():
+    """暗潮加载画面语录（310 条），前端启动时拉取一次，本地洗牌轮换。"""
+    return {"quotes": QUOTES}
 
 
 class SimulateGameBody(BaseModel):
@@ -479,6 +555,7 @@ def api_backup_restore(bid: str):
     pruned = prune_backups()
     if pruned:
         msg += f"（已清理 {len(pruned)} 个旧备份）"
+    invalidate_scan_cache()  # 恢复备份改了 mods 目录
     return {"ok": True, "message": msg, "restored": restored, "archived": archived}
 
 
@@ -510,6 +587,8 @@ def api_export(body: ExportBody):
         return g
     return export_pack(body.name, body.mode)
 
+
+@app.post("/api/game_dir")
 def api_set_game_dir(body: GameDirBody):
     """手动设置游戏目录（保存并立即生效）"""
     g = guard_game_running("切换游戏目录")
@@ -542,6 +621,16 @@ def api_detect_game_dir():
 @app.get("/api/mods")
 def api_mods():
     return {"mods": scan_mods()}
+
+
+@app.get("/api/mods/{name}/detail")
+def api_mod_detail(name: str):
+    """mod 详细描述（悬停浮层懒加载；列表接口不带 description 以减首屏体积）"""
+    safe = Path(name).name
+    d = state.MODS_DIR / safe
+    if not d.is_dir():
+        return {"ok": False, "error": "mod 不存在"}
+    return {"ok": True, "name": safe, "description": read_mod_description(d)}
 
 
 @app.get("/api/deps/check")
@@ -771,6 +860,7 @@ def api_set_note(name: str, body: NoteBody):
     else:
         notes.pop(safe, None)
     save_notes(notes)
+    invalidate_scan_cache()  # 列表里显示备注，改了要刷新元数据缓存
     return {"ok": True, "note": notes.get(safe, "")}
 
 
@@ -846,6 +936,7 @@ def api_delete_mod(name: str):
     if safe in notes:
         notes.pop(safe, None)
         save_notes(notes)
+    invalidate_scan_cache()
     return {"ok": True, "message": f"已删除 {safe}（可到回收站找回）"}
 
 
@@ -1001,14 +1092,17 @@ if __name__ == "__main__":
     state.PROFILES_DIR.mkdir(exist_ok=True)
     state.BACKUP_DIR.mkdir(exist_ok=True)
 
-    # 日志写文件（--windowed 无控制台时也能排错）
+    # 日志写文件（--windowed 无控制台时也能排错）；轮转：单文件超 2MB 自动切新文件，保留 3 份
+    # （前端每 10s 轮询 status 都写 access 日志，不轮转会无限增长）
     LOG_CONFIG = {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {"f": {"format": "%(asctime)s %(levelname)s %(message)s"}},
         "handlers": {"file": {
-            "class": "logging.FileHandler",
+            "class": "logging.handlers.RotatingFileHandler",
             "filename": str(state.BASE_DIR / "app.log"),
+            "maxBytes": 2 * 1024 * 1024,
+            "backupCount": 3,
             "encoding": "utf-8",
             "formatter": "f",
         }},
@@ -1104,3 +1198,5 @@ if __name__ == "__main__":
         win.events.closing += on_closing
         webview.start()
         logging.getLogger().info("窗口已关闭，程序退出")
+        cleanup_webview_children()  # 先杀 WebView2 子进程（加速用户数据锁释放），再释放互斥体
+        release_single_instance()

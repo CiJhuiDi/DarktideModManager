@@ -52,14 +52,14 @@ def main():
 
     state = version_state()
     print('当前版本显示:', state)
-    if state == 'Alpha':
-        print('已是 Alpha 测试态，无需切换')
-        return
-    if not re.match(r'^v\d+\.\d+\.\d+$', state):
+    if state != 'Alpha' and not re.match(r'^v\d+\.\d+\.\d+$', state):
         print('当前状态异常（%s），不做自动切换，请手动检查' % state)
         sys.exit(1)
     if args.check:
-        print('当前为正式态 %s，执行切换将改为：DMM Alpha（界面/exe 只标 Alpha）' % state)
+        if state == 'Alpha':
+            print('已是 Alpha 测试态，无需切换')
+        else:
+            print('当前为正式态 %s，执行切换将改为：DMM Alpha（界面/exe 只标 Alpha）' % state)
         return
 
     changed = False

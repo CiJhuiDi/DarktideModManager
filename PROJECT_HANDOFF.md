@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-18 01:05（各 mod 项目独立交接文档，本文件只记录 DMM 本体；DMM v0.4.1）
+> 最后更新：2026-08-21 03:20（性能优化批次：启动/列表加载/单实例/日志轮转，Alpha 态待实机验证）
 
 ---
 
@@ -11,7 +11,7 @@
 只做"壳"：管理 mod 启停/顺序/预设/整合包导入，内置 DMF 框架组件，不碰游戏本体。
 
 - **代码位置**：`D:\DeepseekWorkspace\darktide-mod-manager\`
-- **当前版本**：v0.4.1（正式版基线，2026-08-17 发布）；工作区当前为**正式态 v0.4.1**，下次内部测试构建前用 `tools/set_alpha_state.py` 切回 Alpha 态（RULES 第 9 条：不带版本号、不打 zip；build_release 发布时自动恢复）
+- **当前版本**：v0.4.1（正式版基线，2026-08-17 发布）；工作区当前为 **Alpha 测试态**（`set_alpha_state.py` 已切：界面/exe 只标 Alpha、不带版本号、不打 zip；正式发布时 `build_release.py` 自动恢复版本号）
 - **测试形态**：Alpha 测试版（`release\DarktideModManager_alpha\`，界面只标 Alpha、不带版本号、不打 zip）；
   正式发布时再 bump 版本 + CHANGELOG 定版 + 打 zip（RULES 第 9 条）
 - **GitHub**：https://github.com/CiJhuiDi/DarktideModManager（CiJhuiDi）
@@ -105,6 +105,20 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 **防呆**：游戏运行中 9 个写 API 守卫 + 前端按钮变灰 + **模拟游戏运行**（关于页开关）
 - ⚠️ **前端运行状态锁的坑（2026-08-17）**：mod 列表 checkbox 的禁用态在 render() 时写死，轮询（pollStatus 每 10s）更新 gameRunning 后若不重渲染列表，checkbox 永远保持禁用 → 游戏关闭后启动按钮恢复但启停开关仍灰锁。修法：updateEditLocks() 直接同步 `.switch input` 的 disabled + locked class（不依赖重渲染）；拖拽用 Sortable onMove 返回 !gameRunning 拦截。改前端列表类锁定先查这里。
 
+**语录显示（工作区未提交，待验证）**：
+- 底部语录栏：每进行一次操作（点击/启停/拖拽排序等）自动换一条暗潮加载画面官方语录（310 条），一轮播完重新洗牌不重复；点击语录栏手动换；右侧显示进度
+- 数据：core/quotes.py（310 条，2026-08-19 从游戏 loading_view_settings.lua 导出；官方文本含 4 条重复文案，如实保留）；API GET /api/quotes 返回全部，前端本地洗牌轮换
+- 触发：全局捕获 click（200ms 同元素去重防双击连换）+ Sortable onEnd；CSS 类 .quote-bar/.q-text/.q-count（已登记 docs/UI_TEMPLATE.md 八·五节）
+- 工具：tools/test_quotes.py（已入 test_full Phase A，共 18 套件）
+
+**性能与稳定性优化（2026-08-21，工作区未提交，待实机验证）**：
+- **列表加载**：scan_mods 元数据缓存（30s TTL + MODS_DIR mtime 签名自动失效 + 写操作显式失效 invalidate_scan_cache：导入/删除/恢复备份/改备注），冷扫 434ms→缓存命中 0ms；localization 搜索深度受限（4 层 os.walk 剪枝替代 rglob 全树）+ 文件列表缓存；.mod 单次读取（version+packages 共用）
+- **status 接口**：去掉 `len(scan_mods())`（改轻量目录计数）+ 进程检测换 CreateToolhelp32Snapshot 快照 API（<5ms，异常回退 tasklist），511ms→60ms
+- **首屏**：骨架屏（.boot-loading，登记 UI_TEMPLATE 八·六）+ /api/mods 去 description（85KB→55KB）+ /api/mods/{name}/detail 悬停懒加载（descCache + 防重入；无描述显示“（无描述）”）
+- **前端渲染**：DocumentFragment 批量插入 + 依赖徽标预构建索引（depIndex，render 时 O(1) 查询）
+- **单实例**：窗口关闭后主动释放互斥体 + 清理 WebView2 子进程（psutil，加速用户数据锁释放，快速重启不再 47s 干等）+ acquire 时先聚焦旧窗口、失败短暂重试（真多开才拦截）
+- **日志**：app.log 轮转（2MB×4 份封顶 8MB）；/api/perf 前端启动耗时上报（首次 load 后写 app.log，排查慢直接看“前端启动耗时”行）
+
 ## 四、开发/发布流程（重要！）
 
 **每次开工前**：读 `C:\Users\123\.openclaw\workspace\RULES.md`（工作条例）
@@ -160,6 +174,10 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 ## 八、踩坑速查（详细见 RULES.md）
 
+- **status 轮询别塞重活（2026-08-21）**：前端每 10s 轮询 /api/status，里面曾有 `len(scan_mods())`（每 10s 全量扫 300+ mod）和 tasklist 子进程（每次 ~350ms）。已改：轻量目录计数 + CreateToolhelp32Snapshot 进程快照（<5ms，异常回退 tasklist）。教训：轮询接口只放轻量计算；进程检测用快照 API 别起子进程；前端渲染用 DocumentFragment + 预构建索引
+- **单实例互斥体不释放 → 关窗后立刻重启被误拦（2026-08-21）**：CreateMutexW 句柄只在进程退出时由 OS 释放，而窗口关闭到进程退出有延迟（WebView2 子进程收尾），期间重启会被判多开。修法：窗口关闭后主动 CloseHandle + acquire 时先聚焦旧窗口、失败则短暂重试（真多开才拦截）。注意同进程内重复 CreateMutexW 同名互斥体会返回同一 handle 且不报 183，等待重试前必须先 CloseHandle
+- **装饰器丢失致路由 404（2026-08-21）**：架构拆分/重构时装饰器可能被吞——`api_set_game_dir` 曾裸奔（无 `@app.post("/api/game_dir")`），前端调 `/api/settings/game_dir` 与后端路径不一致，玩家点「选择文件夹」报 Not Found。教训：路由函数前必须紧贴装饰器；前端 API 路径与后端路由要保持同一常量源；路由改动后全量搜前端/测试/文档引用
+- **启动慢 = scan_mods 的 rglob 全树遍历（2026-08-21）**：启动时 /api/mods + /api/deps/check 连续两次 scan_mods，每个 mod 都 rglob 全树找 localization（缓存检查在搜索后，第二遍白跑）。已改为深度受限搜索（4 层）+ 完整缓存（文件列表缓存，命中只 stat 几个文件）+ .mod 单次读取（version+packages 共用）。教训：扫描类接口在 SSD 上测不出问题，机械盘 + 300+ mod 才会暴露；改 IO 密集路径先想想缓存放哪
 - **僵尸进程**：22 个 python/exe 抢 8317 端口 → 测试假失败，先 taskkill
 - **装饰器错位**：辅助函数别插到 @app.get 和目标函数之间（备份 422 的根因）
 - **秒级时间戳覆盖**：backup_load_order 和 restore 同秒会覆盖目标文件，先读内容再备份
@@ -195,11 +213,11 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 ## 十二、待办 / 可能的下一步
 
-
-- 用户反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比的实机体验）
+- **Alpha 实机验证（2026-08-21 批次，release\DarktideModManager_alpha\）**：① 选择文件夹设置游戏目录（404 修复）；② 启动/列表加载速度（扫描缓存 + 骨架屏 + 懒加载）；③ 关窗后立刻重启秒开（WebView2 子进程清理）；④ 单实例不再误拦；⑤ app.log 轮转；⑥ 语录显示体验；⑦ 悬停浮层描述（无描述显示“（无描述）”）
+- 玩家反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比/语录显示的实机体验）
 - 验证用户实机：① 游戏关闭后 mod 启停开关是否已随轮询解锁；② mod 取消勾选后保存能否真正停用（2026-08-17 两处修复，alpha 构建 release\DarktideModManager_alpha\ 待实机验证）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
 - ⚠️ 0.4.1 已发布：清单格式变更为「停用=移除行」（见 Mod 管理段），实机验证待用户反馈
-- 注意 release\DarktideModManager_v0.3.1\ 里可能有用户实际运行产生的 backups/config（本地数据）
+- 注意 release\DarktideModManager_alpha\ 里可能有用户实际运行产生的 backups/config（本地数据，gitignore）
 - test_pack.py 的 SAMPLE 留空时前置 check 无条件失败（历史遗留脚本 bug，与功能无关，跑测试时可忽略或用真实整合包路径）
 - 崩溃检测功能（工作区未提交）：console_logs 支持已补完；待用户确认后 → 全量测试 → 构建新 exe（dist+release+zip 带协议文件）→ 提交

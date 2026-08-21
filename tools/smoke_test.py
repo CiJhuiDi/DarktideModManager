@@ -51,15 +51,23 @@ def main():
         print('  服务端口:', port)
 
         base = 'http://127.0.0.1:%d' % port
-        try:
-            r = urllib.request.urlopen(base + '/', timeout=5)
-            page_ok = r.status == 200
-            body = r.read().decode('utf-8', errors='ignore')
-            has_title = '暗潮 Mod 管理器' in body or 'mods' in body.lower()
-            print('  GET /:', r.status, '| 页面含内容:', has_title)
-        except Exception as e:
-            print('  GET / 失败:', e)
-            page_ok = False
+        page_ok = False
+        has_title = False
+        # 服务启动有间隙（日志先于监听就绪），GET / 失败时重试几次再判失败
+        for attempt in range(5):
+            try:
+                r = urllib.request.urlopen(base + '/', timeout=5)
+                page_ok = r.status == 200
+                body = r.read().decode('utf-8', errors='ignore')
+                has_title = '暗潮 Mod 管理器' in body or 'mods' in body.lower()
+                print('  GET /:', r.status, '| 页面含内容:', has_title)
+                break
+            except Exception as e:
+                if attempt < 4:
+                    time.sleep(1)
+                    continue
+                print('  GET / 失败:', e)
+                page_ok = False
 
         try:
             import json
