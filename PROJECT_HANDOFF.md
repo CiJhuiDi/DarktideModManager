@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-25（语录内嵌状态栏 + 有效操作触发；含 08-21 性能批次 / 08-23 CDN 修复，Alpha 态待实机验证）
+> 最后更新：2026-08-25（**v0.5.0 已发布**；含语录内嵌状态栏 / 单实例聚焦修复 / 性能批次 / CDN 本地化）
 
 ---
 
@@ -11,7 +11,7 @@
 只做"壳"：管理 mod 启停/顺序/预设/整合包导入，内置 DMF 框架组件，不碰游戏本体。
 
 - **代码位置**：`D:\DeepseekWorkspace\darktide-mod-manager\`
-- **当前版本**：v0.4.1（正式版基线，2026-08-17 发布）；工作区当前为 **Alpha 测试态**（`set_alpha_state.py` 已切：界面/exe 只标 Alpha、不带版本号、不打 zip；正式发布时 `build_release.py` 自动恢复版本号）
+- **当前版本**：**v0.5.0（2026-08-25 发布，正式版）**；工作区为正式态（发布后如需继续 alpha 测试，用 `tools/set_alpha_state.py` 切换）
 - **测试形态**：Alpha 测试版（`release\DarktideModManager_alpha\`，界面只标 Alpha、不带版本号、不打 zip）；
   正式发布时再 bump 版本 + CHANGELOG 定版 + 打 zip（RULES 第 9 条）
 - **GitHub**：https://github.com/CiJhuiDi/DarktideModManager（CiJhuiDi）
@@ -218,12 +218,6 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 ## 十二、待办 / 可能的下一步
 
-- **Alpha 实机验证（2026-08-21 批次，release\DarktideModManager_alpha\）**：① 选择文件夹设置游戏目录（404 修复）；② 启动/列表加载速度（扫描缓存 + 骨架屏 + 懒加载）；③ 关窗后立刻重启秒开（WebView2 子进程清理）；④ 单实例不再误拦；⑤ app.log 轮转；⑥ 语录显示体验（08-25 改为内嵌状态栏居中 + 有效操作触发，重新验证）⑦ 悬停浮层描述（无描述显示“（无描述）”）
-- ~~⚠️ 单实例疑似未拦住双开（2026-08-25）~~ **已澄清：误判**——用户实机两个 DarktideModManager.exe 是 PyInstaller 6.x onefile 的父子进程（bootloader + 实际代码，父子同名），同一实例；跨进程复测拦截正常（持锁 acquire=False、释放后=True，exe 双开 B 被拒退出）
-- 玩家反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比/语录显示的实机体验）
-- 验证用户实机：① 游戏关闭后 mod 启停开关是否已随轮询解锁；② mod 取消勾选后保存能否真正停用（2026-08-17 两处修复，alpha 构建 release\DarktideModManager_alpha\ 待实机验证）
+- **v0.5.0 已发布（2026-08-25）**：Alpha 批次（语录内嵌状态栏 / 性能优化 / CDN 本地化 / 单实例聚焦修复含白屏三重修复）全部定版发布；Release v0.5.0 Beta + zip（含 LICENSE/THIRD_PARTY）已上传。后续待办：
+- 玩家反馈新版本实机体验（语录/聚焦/性能）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
-- ⚠️ 0.4.1 已发布：清单格式变更为「停用=移除行」（见 Mod 管理段），实机验证待用户反馈
-- 注意 release\DarktideModManager_alpha\ 里可能有用户实际运行产生的 backups/config（本地数据，gitignore）
-- test_pack.py 的 SAMPLE 留空时前置 check 无条件失败（历史遗留脚本 bug，与功能无关，跑测试时可忽略或用真实整合包路径）
-- 崩溃检测功能（工作区未提交）：console_logs 支持已补完；待用户确认后 → 全量测试 → 构建新 exe（dist+release+zip 带协议文件）→ 提交
