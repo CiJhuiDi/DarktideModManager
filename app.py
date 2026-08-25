@@ -1074,6 +1074,10 @@ def index():
     return HTMLResponse(html)
 
 
+# 本地 vendor 静态资源（SortableJS 等），避免依赖外网 CDN 导致脚本加载失败卡白屏
+app.mount("/vendor", StaticFiles(directory=str(state.STATIC_DIR / "vendor")), name="vendor")
+
+
 if __name__ == "__main__":
     import argparse
     import logging

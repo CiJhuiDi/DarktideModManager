@@ -107,26 +107,24 @@ showModal({ title: '预览', html: logHtml, ultra: true, extra: [{text:'导出',
 | `mod-tip` | 通用悬停信息浮层（fixed，面板 + accent 边框，pointer-events:none，防溢出定位） |
 | `tip-desc` / `tip-err` | 浮层内描述 / 错误文字 |
 
-## 八·五、语录栏（暗潮加载画面语录）
+## 八·五、语录（内嵌状态栏，暗潮加载画面语录）
 
 | 类 | 用途 |
 |---|---|
-| `quote-bar` | 底部语录栏容器（flex + 相对定位，面板背景 + 毛玻璃，hover 高亮，cursor:pointer） |
-| `.q-ico` | 左侧图标（📜，flex-shrink:0，z-index:1 盖在文本层上） |
-| `.q-text` | 语录文本（**绝对定位铺满整栏，flex 居中**，ellipsis 防溢出） |
-| `.q-count` | 右侧进度（第 n/310 条，dim 小字，margin-left:auto + z-index:1） |
+| `.statusbar .quote-bar` | 状态栏内嵌语录胶囊（flex + 圆角 + panel2 背景 + 边框，hover 高亮 accent 边框，cursor:pointer；**绝对定位水平居中**（left:50% + translateX(-50%)，statusbar 需 position:relative），max-width:46% 防长文撑爆） |
+| `.q-ico` | 左侧图标（📜，flex-shrink:0） |
+| `.q-text` | 语录文本（ellipsis 省略 + min-width:0，悬停 title 看全文） |
 
-示例：
+示例（放在 `.statusbar` 内、`.spacer` 之后）：
 ```html
-<div class="quote-bar" id="quoteBar">
+<span class="quote-bar" id="quoteBar" title="点击换一条语录">
   <span class="q-ico">📜</span>
   <span class="q-text" id="quoteText">帝皇庇佑</span>
-  <span class="q-count" id="quoteCount">第 1/310 条</span>
-</div>
+</span>
 ```
 
-触发规则：每进行一次操作（全局捕获 click，200ms 同元素去重）+ Sortable onEnd 换一条；
-点击语录栏本身 = 手动换；数据来自 `GET /api/quotes`（core/quotes.py，310 条官方文本），
+触发规则：**有效操作才换**——点击可交互元素（`QUOTE_INTERACTIVE` 选择器：button/a/input/select/label/开关/标签/横幅/mod 行/右键菜单/日志视图等，200ms 同元素去重）+ Sortable onEnd 拖拽换一条；
+点空白/装饰区（空操作）不换；点击语录本身 = 手动换；数据来自 `GET /api/quotes`（core/quotes.py，310 条官方文本），
 前端洗牌轮换、一轮播完重新洗牌。
 
 ## 八·六、启动骨架屏

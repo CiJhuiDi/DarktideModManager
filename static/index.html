@@ -415,28 +415,23 @@
     display: flex; align-items: center; gap: 14px;
     padding: 9px 16px; background: var(--panel);
     border-top: 1px solid var(--border); flex-shrink: 0;
-    backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px); position: relative;
   }
 
-  /* ---------- 语录栏（暗潮加载画面语录，每操作一次换一条） ---------- */
-  .quote-bar {
-    display: flex; align-items: center; gap: 10px;
-    padding: 5px 16px; flex-shrink: 0; cursor: pointer;
-    background: var(--panel); border-top: 1px solid var(--border);
-    backdrop-filter: blur(10px); font-size: 12.5px;
-    transition: background .15s; position: relative;
+  /* ---------- 语录（内嵌状态栏，暗潮加载画面语录，每操作一次换一条） ---------- */
+  .statusbar .quote-bar {
+    display: flex; align-items: center; gap: 7px;
+    max-width: 46%; padding: 4px 12px; border-radius: 14px;
+    cursor: pointer; font-size: 12.5px; color: var(--text);
+    background: var(--panel2); border: 1px solid var(--border);
+    transition: background .15s, border-color .15s;
+    overflow: hidden; white-space: nowrap;
+    position: absolute; left: 50%; transform: translateX(-50%); z-index: 2;
   }
-  .quote-bar:hover { background: var(--panel2); }
-  .quote-bar .q-ico { flex-shrink: 0; font-size: 13px; position: relative; z-index: 1; }
-  .quote-bar .q-text {
-    position: absolute; left: 0; right: 0; top: 0; bottom: 0;
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    color: var(--text);
-  }
-  .quote-bar .q-count {
-    flex-shrink: 0; font-size: 11.5px; color: var(--dim);
-    position: relative; z-index: 1; margin-left: auto;
+  .statusbar .quote-bar:hover { background: var(--panel); border-color: var(--accent); }
+  .statusbar .quote-bar .q-ico { flex-shrink: 0; font-size: 12px; }
+  .statusbar .quote-bar .q-text {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   }
   .statusbar .stats { font-size: 12px; color: var(--dim); }
   .statusbar .stats b { color: var(--text); font-weight: 600; }
@@ -784,18 +779,15 @@
     </main>
   </div>
 
-  <!-- 语录栏：暗潮加载画面语录，每进行一次操作换一条（点击也可手动换） -->
-  <div class="quote-bar" id="quoteBar">
-    <span class="q-ico">📜</span>
-    <span class="q-text" id="quoteText">帝皇庇佑</span>
-    <span class="q-count" id="quoteCount">第 1/310 条</span>
-  </div>
-
-  <!-- 状态栏 -->
+  <!-- 状态栏（内嵌语录：每进行一次操作换一条，点击语录也可手动换） -->
   <footer class="statusbar">
     <span class="stats" id="stats">共 0 · 启用 0</span>
     <span class="dirty" id="dirty">● 有未保存的修改</span>
     <span class="spacer"></span>
+    <span class="quote-bar" id="quoteBar" title="点击换一条语录">
+      <span class="q-ico">📜</span>
+      <span class="q-text" id="quoteText">帝皇庇佑</span>
+    </span>
     <button id="btnRevert" disabled>撤销</button>
     <button class="save" id="btnSaveMods" disabled>保存修改</button>
   </footer>
@@ -832,7 +824,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="/vendor/sortablejs/Sortable.min.js"></script>
   <script>
     const $ = id => document.getElementById(id);
     const listEl = $('modList'), toastEl = $('toast'), searchEl = $('search');
@@ -2813,19 +2805,22 @@
       if (!quoteOrder.length) return;
       if (quotePos >= quoteOrder.length) shuffleQuote();  // 一轮播完重新洗牌
       const q = quoteOrder[quotePos++];
-      const t = $('quoteText'), c = $('quoteCount');
+      const t = $('quoteText');
       if (t) t.textContent = q;
-      if (c) c.textContent = '第 ' + quotePos + '/' + quoteOrder.length + ' 条';
+      const b = $('quoteBar'); if (b) b.title = q;  // 长语录悬停看全文
     }
     function initQuotes() {
       api('/api/quotes').then(r => {
         quotePool = (r && r.quotes && r.quotes.length) ? r.quotes : QUOTE_FALLBACK;
       }).catch(() => { quotePool = QUOTE_FALLBACK; })
       .finally(() => { shuffleQuote(); nextQuote(); });
-      // 每进行一次操作换一条语录：全局捕获 click（200ms 内同一元素重复触发算一次，双击不连换）
+      // 每进行一次**有效操作**换一条语录：点击可交互元素（按钮/开关/行/标签等）才换，
+      // 点空白/装饰区（空操作）不换；200ms 内同元素重复点击算一次（防连发）
+      const QUOTE_INTERACTIVE = 'button, a, input, select, textarea, label, [role="button"], [role="tab"], [data-action], [onclick], .switch, .chip, .nav-item, .quote-bar, .banner, .mod-row, .ctx-menu, .log-fbtn, .log-view, .tab';
       let lastQEl = null, lastQTime = 0;
       document.addEventListener('click', e => {
-        if (e.target.closest('#quoteBar')) { nextQuote(); return; }  // 点击语录栏 = 手动换
+        if (e.target.closest('#quoteBar')) { nextQuote(); return; }  // 点击语录胶囊 = 手动换
+        if (!e.target.closest(QUOTE_INTERACTIVE)) return;  // 空操作不换
         const now = Date.now();
         if (e.target === lastQEl && now - lastQTime < 200) return;
         lastQEl = e.target; lastQTime = now;

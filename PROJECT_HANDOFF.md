@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-21 03:20（性能优化批次：启动/列表加载/单实例/日志轮转，Alpha 态待实机验证）
+> 最后更新：2026-08-25（语录内嵌状态栏 + 有效操作触发；含 08-21 性能批次 / 08-23 CDN 修复，Alpha 态待实机验证）
 
 ---
 
@@ -105,10 +105,11 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 **防呆**：游戏运行中 9 个写 API 守卫 + 前端按钮变灰 + **模拟游戏运行**（关于页开关）
 - ⚠️ **前端运行状态锁的坑（2026-08-17）**：mod 列表 checkbox 的禁用态在 render() 时写死，轮询（pollStatus 每 10s）更新 gameRunning 后若不重渲染列表，checkbox 永远保持禁用 → 游戏关闭后启动按钮恢复但启停开关仍灰锁。修法：updateEditLocks() 直接同步 `.switch input` 的 disabled + locked class（不依赖重渲染）；拖拽用 Sortable onMove 返回 !gameRunning 拦截。改前端列表类锁定先查这里。
 
-**语录显示（工作区未提交，待验证）**：
-- 底部语录栏：每进行一次操作（点击/启停/拖拽排序等）自动换一条暗潮加载画面官方语录（310 条），一轮播完重新洗牌不重复；点击语录栏手动换；右侧显示进度
+**语录显示（内嵌状态栏，2026-08-25 调整，待实机验证）**：
+- 底部**状态栏内嵌语录胶囊**（绝对定位水平居中，statusbar 需 position:relative；不再单开栏位）：暗潮加载画面官方语录（310 条），点击胶囊手动换；超长省略 + 悬停 title 看全文
+- **有效操作才换**：点击可交互元素才换（前端 `QUOTE_INTERACTIVE` 选择器：button/a/input/select/label/[role]/[data-action]/[onclick]/.switch/.chip/.nav-item/.quote-bar/.banner/.mod-row/.ctx-menu/.log-fbtn/.log-view/.tab，200ms 同元素去重）+ Sortable onEnd 拖拽换；**点空白/装饰区（空操作）不换**
 - 数据：core/quotes.py（310 条，2026-08-19 从游戏 loading_view_settings.lua 导出；官方文本含 4 条重复文案，如实保留）；API GET /api/quotes 返回全部，前端本地洗牌轮换
-- 触发：全局捕获 click（200ms 同元素去重防双击连换）+ Sortable onEnd；CSS 类 .quote-bar/.q-text/.q-count（已登记 docs/UI_TEMPLATE.md 八·五节）
+- 触发：全局捕获 click 过滤 QUOTE_INTERACTIVE + Sortable onEnd；CSS 类 .quote-bar/.q-ico/.q-text（已登记 docs/UI_TEMPLATE.md 八·五节）
 - 工具：tools/test_quotes.py（已入 test_full Phase A，共 18 套件）
 
 **性能与稳定性优化（2026-08-21，工作区未提交，待实机验证）**：
@@ -174,6 +175,8 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 ## 八、踩坑速查（详细见 RULES.md）
 
+- **前端卡「连接中…」= CDN 外链脚本超时中断 JS（2026-08-23）**：SortableJS 曾走 `cdn.jsdelivr.net` 同步 `<script src>`，CDN 不可达时 WebView2 等 ~20s 超时后继续执行内联 JS，跑到 `new Sortable(...)` 时 `Sortable` 未定义抛错 → 后续 `load()`（脚本最后一行）永不执行 → 前端永远「连接中…」（`/api/status` 轮询正常、`/api/mods` 请求缺失——uvicorn access log 响应完成才写，所以日志里看不到）。已修：Sortable.min.js 本地化到 `static/vendor/sortablejs/`，后端 `app.mount("/vendor", StaticFiles(...))`；**以后前端禁引外网 CDN 脚本**，静态资源一律走 `/vendor`
+
 - **status 轮询别塞重活（2026-08-21）**：前端每 10s 轮询 /api/status，里面曾有 `len(scan_mods())`（每 10s 全量扫 300+ mod）和 tasklist 子进程（每次 ~350ms）。已改：轻量目录计数 + CreateToolhelp32Snapshot 进程快照（<5ms，异常回退 tasklist）。教训：轮询接口只放轻量计算；进程检测用快照 API 别起子进程；前端渲染用 DocumentFragment + 预构建索引
 - **单实例互斥体不释放 → 关窗后立刻重启被误拦（2026-08-21）**：CreateMutexW 句柄只在进程退出时由 OS 释放，而窗口关闭到进程退出有延迟（WebView2 子进程收尾），期间重启会被判多开。修法：窗口关闭后主动 CloseHandle + acquire 时先聚焦旧窗口、失败则短暂重试（真多开才拦截）。注意同进程内重复 CreateMutexW 同名互斥体会返回同一 handle 且不报 183，等待重试前必须先 CloseHandle
 - **装饰器丢失致路由 404（2026-08-21）**：架构拆分/重构时装饰器可能被吞——`api_set_game_dir` 曾裸奔（无 `@app.post("/api/game_dir")`），前端调 `/api/settings/game_dir` 与后端路径不一致，玩家点「选择文件夹」报 Not Found。教训：路由函数前必须紧贴装饰器；前端 API 路径与后端路由要保持同一常量源；路由改动后全量搜前端/测试/文档引用
@@ -213,7 +216,8 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 ## 十二、待办 / 可能的下一步
 
-- **Alpha 实机验证（2026-08-21 批次，release\DarktideModManager_alpha\）**：① 选择文件夹设置游戏目录（404 修复）；② 启动/列表加载速度（扫描缓存 + 骨架屏 + 懒加载）；③ 关窗后立刻重启秒开（WebView2 子进程清理）；④ 单实例不再误拦；⑤ app.log 轮转；⑥ 语录显示体验；⑦ 悬停浮层描述（无描述显示“（无描述）”）
+- **Alpha 实机验证（2026-08-21 批次，release\DarktideModManager_alpha\）**：① 选择文件夹设置游戏目录（404 修复）；② 启动/列表加载速度（扫描缓存 + 骨架屏 + 懒加载）；③ 关窗后立刻重启秒开（WebView2 子进程清理）；④ 单实例不再误拦；⑤ app.log 轮转；⑥ 语录显示体验（08-25 改为内嵌状态栏居中 + 有效操作触发，重新验证）⑦ 悬停浮层描述（无描述显示“（无描述）”）
+- ⚠️ **单实例疑似未拦住双开（2026-08-25 发现）**：用户实机同时出现两个 release\DarktideModManager_alpha\DarktideModManager.exe 进程（10:25:33/34 各一个）——互斥体逻辑（Local\ 单实例 + 聚焦旧窗 + 短暂重试）理论应拦截，待复现排查
 - 玩家反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比/语录显示的实机体验）
 - 验证用户实机：① 游戏关闭后 mod 启停开关是否已随轮询解锁；② mod 取消勾选后保存能否真正停用（2026-08-17 两处修复，alpha 构建 release\DarktideModManager_alpha\ 待实机验证）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
