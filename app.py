@@ -127,7 +127,9 @@ def cleanup_webview_children():
 
 def focus_existing_window(title: str = "暗潮 Mod 管理器") -> bool:
     """多开被拒时尝试激活已有实例的主窗口，返回是否成功。
-    校验窗口进程必须属于本程序（防误中 explorer TabProxyWindow 等同名窗口）。"""
+    校验窗口进程必须属于本程序（防误中 explorer TabProxyWindow 等同名窗口）。
+    后台进程直接 SetForegroundWindow 会被 Windows 前台激活锁忽略：先 SW_RESTORE 恢复
+    最小化窗口，再模拟 Alt 键绕过激活限制，最后 SetForegroundWindow + BringWindowToTop。"""
     try:
         import ctypes
         user32 = ctypes.WinDLL('user32', use_last_error=True)
@@ -137,6 +139,18 @@ def focus_existing_window(title: str = "暗潮 Mod 管理器") -> bool:
         user32.SetForegroundWindow.restype = ctypes.c_bool
         user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
         user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+        user32.ShowWindow.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        user32.IsIconic.argtypes = [ctypes.c_void_p]
+        user32.IsIconic.restype = ctypes.c_bool
+        user32.BringWindowToTop.argtypes = [ctypes.c_void_p]
+        user32.AttachThreadInput.argtypes = [ctypes.c_ulong, ctypes.c_ulong, ctypes.c_bool]
+        user32.SetFocus.argtypes = [ctypes.c_void_p]
+        user32.SetFocus.restype = ctypes.c_void_p
+        user32.GetForegroundWindow.restype = ctypes.c_void_p
+        user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+        user32.RedrawWindow.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint]
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.GetCurrentThreadId.restype = ctypes.c_ulong
         hwnd = user32.FindWindowW(None, title)
         if not hwnd:
             return False
@@ -147,11 +161,34 @@ def focus_existing_window(title: str = "暗潮 Mod 管理器") -> bool:
             out = subprocess.run(['tasklist', '/FI', 'PID eq %d' % pid.value, '/FO', 'CSV', '/NH'],
                                  capture_output=True, timeout=5,
                                  creationflags=CREATE_NO_WINDOW).stdout
-            if 'DarktideModManager.exe' not in (out or b''):
+            if b'DarktideModManager.exe' not in (out or b''):  # bytes 比较！str in bytes 会 TypeError 被吞成 False
                 return False
         except Exception:
             return False
+        # 仅当窗口最小化时才还原（SW_RESTORE=9）：无条件还原会把最大化窗口打回普通大小，
+        # 导致窗口尺寸突变 + WebView2 重绘白屏闪烁，且破坏用户的全屏布局
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)
+        # AttachThreadInput 方案：当前线程 attach 到目标窗口线程 + 前台线程，
+        # SetForegroundWindow 即不被前台激活锁拦截。不注入任何按键事件（keybd_event 模拟
+        # Alt 可能干扰 WebView2 渲染，曾疑导致聚焦后白屏），更温和安全。
+        cur = kernel32.GetCurrentThreadId()
+        tgt = user32.GetWindowThreadProcessId(hwnd, None)
+        fg = user32.GetWindowThreadProcessId(user32.GetForegroundWindow(), None)
+        attached = []
+        if tgt and tgt != cur:
+            user32.AttachThreadInput(cur, tgt, True)
+            attached.append(tgt)
+        if fg and fg != cur and fg != tgt:
+            user32.AttachThreadInput(cur, fg, True)
+            attached.append(fg)
+        user32.BringWindowToTop(hwnd)
         user32.SetForegroundWindow(hwnd)
+        user32.SetFocus(hwnd)
+        # WebView2 最小化还原后偶发白屏（GPU 合成器未唤醒，已知问题）：强制整窗无效化重绘
+        user32.RedrawWindow(hwnd, None, None, 0x0001 | 0x0080 | 0x0100)  # RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW
+        for t in attached:
+            user32.AttachThreadInput(cur, t, False)
         return True
     except Exception:
         return False
@@ -1113,14 +1150,10 @@ if __name__ == "__main__":
         "root": {"handlers": ["file"], "level": "INFO"},
     }
 
-    # 单实例保护：命名互斥体
+    # 单实例保护：命名互斥体（已有实例时聚焦其窗口并静默退出，不弹提示框）
     if not args.browser and not acquire_single_instance():
         focused = focus_existing_window()
-        logging.getLogger().info("检测到已有实例，拒绝多开" + ("（已聚焦现有窗口）" if focused else "（未找到窗口）"))
-        import ctypes
-        msg = "暗潮 Mod 管理器已经在运行中。"
-        msg += "\n已切换到现有窗口。" if focused else "\n请查看任务栏或系统托盘。"
-        ctypes.windll.user32.MessageBoxW(0, msg, "暗潮 Mod 管理器", 0x40)
+        logging.getLogger().info("检测到已有实例，聚焦现有窗口后退出" + ("（已聚焦）" if focused else "（未找到窗口）"))
         sys.exit(0)
 
     # 端口：显式指定则用指定值，否则动态分配空闲端口
@@ -1199,7 +1232,17 @@ if __name__ == "__main__":
             except Exception:
                 pass
 
+        def on_restored():
+            """WebView2 最小化还原后偶发白屏（合成器未唤醒，已知问题）：
+            微小 resize 往返强制重新合成（+1px 再还原）。"""
+            try:
+                win.resize(win.width + 1, win.height)
+                win.resize(win.width - 1, win.height)
+            except Exception:
+                pass
+
         win.events.closing += on_closing
+        win.events.restored += on_restored
         webview.start()
         logging.getLogger().info("窗口已关闭，程序退出")
         cleanup_webview_children()  # 先杀 WebView2 子进程（加速用户数据锁释放），再释放互斥体

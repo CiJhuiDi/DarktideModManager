@@ -178,7 +178,9 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 - **前端卡「连接中…」= CDN 外链脚本超时中断 JS（2026-08-23）**：SortableJS 曾走 `cdn.jsdelivr.net` 同步 `<script src>`，CDN 不可达时 WebView2 等 ~20s 超时后继续执行内联 JS，跑到 `new Sortable(...)` 时 `Sortable` 未定义抛错 → 后续 `load()`（脚本最后一行）永不执行 → 前端永远「连接中…」（`/api/status` 轮询正常、`/api/mods` 请求缺失——uvicorn access log 响应完成才写，所以日志里看不到）。已修：Sortable.min.js 本地化到 `static/vendor/sortablejs/`，后端 `app.mount("/vendor", StaticFiles(...))`；**以后前端禁引外网 CDN 脚本**，静态资源一律走 `/vendor`
 
 - **status 轮询别塞重活（2026-08-21）**：前端每 10s 轮询 /api/status，里面曾有 `len(scan_mods())`（每 10s 全量扫 300+ mod）和 tasklist 子进程（每次 ~350ms）。已改：轻量目录计数 + CreateToolhelp32Snapshot 进程快照（<5ms，异常回退 tasklist）。教训：轮询接口只放轻量计算；进程检测用快照 API 别起子进程；前端渲染用 DocumentFragment + 预构建索引
-- **单实例互斥体不释放 → 关窗后立刻重启被误拦（2026-08-21）**：CreateMutexW 句柄只在进程退出时由 OS 释放，而窗口关闭到进程退出有延迟（WebView2 子进程收尾），期间重启会被判多开。修法：窗口关闭后主动 CloseHandle + acquire 时先聚焦旧窗口、失败则短暂重试（真多开才拦截）。注意同进程内重复 CreateMutexW 同名互斥体会返回同一 handle 且不报 183，等待重试前必须先 CloseHandle
+- **单实例互斥体不释放 → 关窗后立刻重启被误拦（2026-08-21）**：CreateMutexW 句柄只在进程退出时由 OS 释放，而窗口关闭到进程退出有延迟（WebView2 子进程收尾），期间重启会被判多开。修法：窗口关闭后主动 CloseHandle + acquire 时先聚焦旧窗口、失败则短暂重试（真多开才拦截）。注意同进程内重复 CreateMutexW 同名互斥体会返回同一 handle 且不报 183，等待重试前必须先 CloseHandle。**行为变更（2026-08-25）**：多开不再弹「已经在运行中」提示框——已有实例时聚焦现有窗口后静默退出（app.py main 里去掉 MessageBoxW，只留日志）
+- **聚焦现有窗口失效 = tasklist bytes/str 比较坑（2026-08-25 破案）**：`focus_existing_window` 用 `'DarktideModManager.exe' not in (out or b'')`——out 是 bytes，str in bytes 抛 TypeError 被外层 except 吞成 False，SetForegroundWindow 从未执行。修法：`b'DarktideModManager.exe' not in out`。**另：PyInstaller 6.x onefile 是父子双进程**（bootloader 父 + 实际代码子，父子同名），进程列表里两个 DarktideModManager.exe 是**同一实例**，别误判成双开；互斥体在子进程创建
+- **聚焦唤起最小化窗口白屏 = WebView2 合成器未唤醒（2026-08-25 破案，用户实机必现）**：最小化状态下被聚焦唤起 → 窗口持续白屏无法交互。三重修复（app.py）：① 弃用 keybd_event 模拟 Alt（按键注入可能干扰 WebView2），改 **AttachThreadInput**（当前线程 attach 到目标窗口线程+前台线程，SetForegroundWindow 不再被前台锁拦，零按键注入）；② SW_RESTORE 仅 IsIconic 时才调（无条件还原会把最大化窗口打回普通大小）；③ 还原后 **RedrawWindow(RDW_INVALIDATE|ALLCHILDREN|UPDATENOW) 强制重绘** + 窗口侧 `win.events.restored` 里做 **+1/-1px resize 往返**强制合成器重新唤醒。注意：ImageGrab 截屏在窗口不在前台时截到遮挡内容（97% 白假象），抓窗口内容要用 **PrintWindow(PW_RENDERFULLCONTENT=2)**；build_alpha 曾静默失败（exe 停在旧版），构建后务必核对 release exe 时间戳
 - **装饰器丢失致路由 404（2026-08-21）**：架构拆分/重构时装饰器可能被吞——`api_set_game_dir` 曾裸奔（无 `@app.post("/api/game_dir")`），前端调 `/api/settings/game_dir` 与后端路径不一致，玩家点「选择文件夹」报 Not Found。教训：路由函数前必须紧贴装饰器；前端 API 路径与后端路由要保持同一常量源；路由改动后全量搜前端/测试/文档引用
 - **启动慢 = scan_mods 的 rglob 全树遍历（2026-08-21）**：启动时 /api/mods + /api/deps/check 连续两次 scan_mods，每个 mod 都 rglob 全树找 localization（缓存检查在搜索后，第二遍白跑）。已改为深度受限搜索（4 层）+ 完整缓存（文件列表缓存，命中只 stat 几个文件）+ .mod 单次读取（version+packages 共用）。教训：扫描类接口在 SSD 上测不出问题，机械盘 + 300+ mod 才会暴露；改 IO 密集路径先想想缓存放哪
 - **僵尸进程**：22 个 python/exe 抢 8317 端口 → 测试假失败，先 taskkill
@@ -217,7 +219,7 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 ## 十二、待办 / 可能的下一步
 
 - **Alpha 实机验证（2026-08-21 批次，release\DarktideModManager_alpha\）**：① 选择文件夹设置游戏目录（404 修复）；② 启动/列表加载速度（扫描缓存 + 骨架屏 + 懒加载）；③ 关窗后立刻重启秒开（WebView2 子进程清理）；④ 单实例不再误拦；⑤ app.log 轮转；⑥ 语录显示体验（08-25 改为内嵌状态栏居中 + 有效操作触发，重新验证）⑦ 悬停浮层描述（无描述显示“（无描述）”）
-- ⚠️ **单实例疑似未拦住双开（2026-08-25 发现）**：用户实机同时出现两个 release\DarktideModManager_alpha\DarktideModManager.exe 进程（10:25:33/34 各一个）——互斥体逻辑（Local\ 单实例 + 聚焦旧窗 + 短暂重试）理论应拦截，待复现排查
+- ~~⚠️ 单实例疑似未拦住双开（2026-08-25）~~ **已澄清：误判**——用户实机两个 DarktideModManager.exe 是 PyInstaller 6.x onefile 的父子进程（bootloader + 实际代码，父子同名），同一实例；跨进程复测拦截正常（持锁 acquire=False、释放后=True，exe 双开 B 被拒退出）
 - 玩家反馈测试新功能（主题系统/多选模式/导出/依赖检查/差异对比/语录显示的实机体验）
 - 验证用户实机：① 游戏关闭后 mod 启停开关是否已随轮询解锁；② mod 取消勾选后保存能否真正停用（2026-08-17 两处修复，alpha 构建 release\DarktideModManager_alpha\ 待实机验证）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）

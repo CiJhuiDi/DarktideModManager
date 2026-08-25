@@ -11,6 +11,11 @@
 ## 待定
 
 **修复**
+- 修复：再次启动时不再弹「已经在运行中」提示框——检测到已有实例直接聚焦现有窗口并静默退出（原实现聚焦后仍弹 MessageBox，打断操作）
+- 修复：多开聚焦现有窗口失效——tasklist 输出是 bytes，进程名校验用 str 做 `in` 判断抛 TypeError 被外层 except 吞成 False，聚焦代码从未执行（函数永远 False）；改 bytes 比较
+- 修复：聚焦唤起最小化窗口白屏（持续、无法交互）——WebView2 最小化后 GPU 合成器挂起，还原时未唤醒（已知问题）。三重修复：① 聚焦方式弃用 keybd_event 模拟 Alt（按键注入可能干扰 WebView2 输入流），改 AttachThreadInput（当前线程 attach 目标+前台线程后 SetForegroundWindow，零按键注入）；② SW_RESTORE 仅当窗口最小化时才调用（无条件还原会把最大化窗口打回普通大小，破坏布局）；③ 还原后 RedrawWindow 强制整窗重绘 + 窗口侧监听 restored 事件做 +1/-1px resize 往返强制合成器重新唤醒
+
+**修复**
 - 修复：启动后卡「连接中…」（前端永远加载不出 mod 列表）——SortableJS 走 jsdelivr CDN 同步外链，CDN 超时/被墙时 Sortable 未定义，脚本中断导致 load() 不执行、/api/mods 永不请求（日志只有 status 轮询、页面永远「连接中」）；现已本地化（static/vendor/sortablejs/）+ 后端挂载 /vendor 静态路由，彻底摆脱 CDN 依赖
 
 **修复**
