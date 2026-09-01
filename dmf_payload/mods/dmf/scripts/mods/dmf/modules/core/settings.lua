@@ -34,6 +34,16 @@ local function save_all_settings()
   end
 end
 
+local function serialize_vector4(setting_value)
+  if type(setting_value) == "userdata" and Script.type_name(setting_value) == "Vector4" then
+    return {
+      Quaternion.to_elements(setting_value),
+    }
+  end
+
+  return setting_value
+end
+
 -- #####################################################################################################################
 -- ##### DMFMod ########################################################################################################
 -- #####################################################################################################################
@@ -53,6 +63,7 @@ function DMFMod:set(setting_id, setting_value, notify_mod)
   end
 
   local mod_settings = _mods_settings[mod_name]
+  setting_value = serialize_vector4(setting_value)
   mod_settings[setting_id] = type(setting_value) == "table" and table.clone(setting_value) or setting_value
 
   _there_are_unsaved_changes = true
@@ -79,6 +90,12 @@ end
 -- #####################################################################################################################
 -- ##### DMF internal functions and variables ##########################################################################
 -- #####################################################################################################################
+
+function dmf._get_setting_value(mod_name, setting_id)
+  local mod_settings = _mods_settings[mod_name]
+
+  return mod_settings and mod_settings[setting_id]
+end
 
 function dmf.save_unsaved_settings_to_file()
   save_all_settings()

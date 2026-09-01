@@ -11,9 +11,10 @@ local _chat_opened = false
 
 local _commands_list = {}
 local _command_index = 0 -- 0 => nothing selected
+local _command_user_input = ""
+local _command_completion = ""
 
 local _commands_list_gui_draw
-local _commands_list_gui_destroy
 
 local _chat_history = {}
 local _chat_history_index = 0
@@ -36,16 +37,11 @@ local function initialize_drawing_function()
   if not _commands_list_gui_draw then
     local commands_list_gui = dmf:io_dofile("dmf/scripts/mods/dmf/modules/ui/chat/commands_list_gui")
     _commands_list_gui_draw = commands_list_gui.draw
-    _commands_list_gui_destroy = commands_list_gui.destroy
   end
 end
 
 local function destroy_command_gui()
-  if _commands_list_gui_destroy then
-    _commands_list_gui_destroy()
-    _commands_list_gui_draw = nil
-    _commands_list_gui_destroy = nil
-  end
+  _commands_list_gui_draw = nil
 end
 
 local function clean_chat_notifications()
@@ -71,6 +67,23 @@ local function set_chat_message(chat_gui, message)
   _chat_message = message
   chat_gui._input_field_widget.content.input_text = message
   chat_gui._input_field_widget.content.caret_position = Utf8.string_length(_chat_message) + 1
+end
+
+local function get_common_command_prefix(commands)
+  local common_prefix = commands[1].name
+
+  for i = 2, #commands do
+    local command_name = commands[i].name
+    local common_length = math.min(#common_prefix, #command_name)
+
+    while common_length > 0 and string.sub(common_prefix, 1, common_length) ~= string.sub(command_name, 1, common_length) do
+      common_length = common_length - 1
+    end
+
+    common_prefix = string.sub(common_prefix, 1, common_length)
+  end
+
+  return common_prefix
 end
 
 -- ####################################################################################################################
@@ -133,10 +146,36 @@ dmf:hook(CLASS.ConstantElementChat, "_handle_active_chat_input", function(func, 
       return
     end
   end
+
+  -- getting state of 'tab', 'arrow right', 'arrow up' and 'arrow down' buttons
+  local tab_pressed = false
+  local arrow_right_pressed = false
+  local arrow_up_pressed = false
+  local arrow_down_pressed = false
+  local left_ctrl_pressed = Keyboard.button(Keyboard.button_index("left ctrl")) ~= 0
+
+  for _, stroke in ipairs(Keyboard.keystrokes()) do
+    if stroke == Keyboard.TAB and not left_ctrl_pressed then
+      tab_pressed = true
+    -- game considers some "ctrl + [something]" combinations as arrow buttons,
+    -- so I have to check for ctrl not pressed
+    elseif stroke == Keyboard.RIGHT and not left_ctrl_pressed then
+      arrow_right_pressed = true
+    elseif stroke == Keyboard.UP and not left_ctrl_pressed then
+      arrow_up_pressed = true
+    elseif stroke == Keyboard.DOWN and not left_ctrl_pressed then
+      arrow_down_pressed = true
+    end
+  end
   
   local old_chat_message = _chat_message
+  local caret_at_end = Utf8.string_length(_chat_message) + 1 == get_chat_index(self)
+  local command_tab_pressed = tab_pressed and string.sub(_chat_message, 1, 1) == "/"
+  local result
 
-  local result = func(self, input_service, ui_renderer, ...)
+  if not command_tab_pressed then
+    result = func(self, input_service, ui_renderer, ...)
+  end
 
   -- Get completion state
   local input_widget = self._input_field_widget
@@ -149,27 +188,12 @@ dmf:hook(CLASS.ConstantElementChat, "_handle_active_chat_input", function(func, 
 
     _commands_list = {}
     _command_index = 0
+    _command_user_input = ""
+    _command_completion = ""
     _chat_history_index = 0
   end
 
   if _chat_opened then
-
-    -- getting state of 'arrow right', 'arrow up' and 'arrow down' buttons
-    local arrow_right_pressed = false
-    local arrow_up_pressed = false
-    local arrow_down_pressed = false
-    for _, stroke in ipairs(Keyboard.keystrokes()) do
-        -- game considers some "ctrl + [something]" combinations as arrow buttons,
-        -- so I have to check for ctrl not pressed
-      if stroke == Keyboard.RIGHT and Keyboard.button(Keyboard.button_index("left ctrl")) == 0 then
-        arrow_right_pressed = true
-      elseif stroke == Keyboard.UP and Keyboard.button(Keyboard.button_index("left ctrl")) == 0 then
-        arrow_up_pressed = true
-      elseif stroke == Keyboard.DOWN and Keyboard.button(Keyboard.button_index("left ctrl")) == 0 then
-        arrow_down_pressed = true
-      end
-    end
-
     -- chat history
     if _chat_history_enabled then
 
@@ -197,45 +221,75 @@ dmf:hook(CLASS.ConstantElementChat, "_handle_active_chat_input", function(func, 
           else -- new_index == 0
             set_chat_message(self, "")
           end
+
+          _command_user_input = _chat_message
+          _command_completion = ""
         end
       end
     end
 
+    caret_at_end = Utf8.string_length(_chat_message) + 1 == get_chat_index(self)
+
+    if _command_completion ~= "" and
+       (_chat_message ~= _command_user_input .. _command_completion or not caret_at_end) then
+      _command_user_input = _chat_message
+      _command_completion = ""
+    elseif _command_completion == "" then
+      _command_user_input = _chat_message
+    end
+
     -- entered chat message starts with "/"
     if string.sub(_chat_message, 1, 1) == "/" then
+      local has_command_arguments = string.find(_chat_message, " ")
+      local command_name_contains = _command_user_input:match("%S+"):sub(2, -1)
 
-      local autocompleting = false
-
-      -- if there's no space after '/part_of_command_name' and if arrow_right was pressed
-      if not string.find(_chat_message, " ") and arrow_right_pressed and
-         -- if arrow_right was pressed with caret at the end of the string
-         (string.len(_chat_message) + 1) == get_chat_index(self) and
-         -- if there are any commands matching entered '/part_of_command_name
-         (#_commands_list > 0) then
-
-        _command_index = _command_index % #_commands_list + 1
-
-        set_chat_message(self, "/" .. _commands_list[_command_index].name)
-
-        -- so the next block won't update the commands list
-        autocompleting = true
-      end
-
-
-      if not autocompleting or not dmf._commands_list_gui_draw then
-        -- get '/part_of_command_name' without '/'
-        local command_name_contains = _chat_message:match("%S+"):sub(2, -1)
-
-        if string.find(_chat_message, " ") then
-          _commands_list = dmf.get_commands_list(command_name_contains, true)
-        else
-          _commands_list = dmf.get_commands_list(command_name_contains)
-        end
-
+      if has_command_arguments then
+        _commands_list = dmf.get_commands_list(command_name_contains, true)
         _command_index = 0
+        _command_completion = ""
 
         if #_commands_list > 0 and command_name_contains:lower() == _commands_list[1].name then
           _command_index = 1
+        end
+      else
+        _commands_list = dmf.get_commands_list(command_name_contains)
+
+        local autocomplete_pressed = (command_tab_pressed or arrow_right_pressed) and caret_at_end
+
+        if autocomplete_pressed and #_commands_list == 1 then
+          local completion = string.sub(_commands_list[1].name, #command_name_contains + 1)
+
+          _command_user_input = _command_user_input .. completion
+          _command_completion = ""
+          _command_index = 1
+
+          set_chat_message(self, _command_user_input)
+        elseif autocomplete_pressed and #_commands_list > 1 then
+          local common_prefix = get_common_command_prefix(_commands_list)
+
+          if #common_prefix > #command_name_contains then
+            local completion = string.sub(common_prefix, #command_name_contains + 1)
+
+            _command_user_input = _command_user_input .. completion
+            _command_completion = ""
+            _command_index = 0
+
+            set_chat_message(self, _command_user_input)
+          else
+            _command_index = _command_index % #_commands_list + 1
+            _command_completion = string.sub(
+              _commands_list[_command_index].name,
+              #command_name_contains + 1
+            )
+
+            set_chat_message(self, _command_user_input .. _command_completion)
+          end
+        elseif _command_completion == "" then
+          _command_index = 0
+
+          if #_commands_list > 0 and command_name_contains:lower() == _commands_list[1].name then
+            _command_index = 1
+          end
         end
       end
 
@@ -244,11 +298,23 @@ dmf:hook(CLASS.ConstantElementChat, "_handle_active_chat_input", function(func, 
     elseif #_commands_list > 0 then
       _commands_list = {}
       _command_index = 0
+      _command_user_input = _chat_message
+      _command_completion = ""
     end
 
-    if #_commands_list > 0 then
-      _commands_list_gui_draw(_commands_list, _command_index)
-    end
+  end
+
+  return result
+end)
+
+dmf:hook(CLASS.ConstantElementChat, "_draw_widgets", function(
+  func, self, dt, t, input_service, ui_renderer, render_settings, ...
+)
+  local result = func(self, dt, t, input_service, ui_renderer, render_settings, ...)
+
+  if _chat_opened and #_commands_list > 0 then
+    initialize_drawing_function()
+    _commands_list_gui_draw(self, _commands_list, _command_index, ui_renderer)
   end
 
   return result

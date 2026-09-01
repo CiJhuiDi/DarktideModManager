@@ -29,6 +29,7 @@ function dmf_mod_object:init()
   -- DMF's internal io module is now loaded:
   ---@type DMFMod
   dmf = get_mod("DMF")
+  dmf.initialize_mod_packages(dmf)
 
   dmf:io_dofile("dmf/scripts/mods/dmf/modules/debug/dev_console")
   dmf:io_dofile("dmf/scripts/mods/dmf/modules/debug/table_dump")
@@ -61,7 +62,6 @@ end
 -- #####################################################################################################################
 
 function dmf_mod_object:update(dt)
-  dmf.update_package_manager()
   dmf.mods_update_event(dt)
   dmf.check_keybinds()
   dmf.execute_queued_chat_command()
@@ -80,6 +80,7 @@ end
 
 function dmf_mod_object:on_unload()
   print("DMF:ON_UNLOAD()")
+  dmf.unload_all_resource_packages()
   dmf.save_chat_history()
   dmf.save_unsaved_settings_to_file()
   dmf.destroy_command_gui()

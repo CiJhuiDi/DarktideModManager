@@ -2,7 +2,7 @@
 local dmf = get_mod("DMF")
 
 local dmf_mod_data = {}
-dmf_mod_data.name = "暗潮模组框架"
+dmf_mod_data.name = dmf:localize("dmf_mod_name")
 dmf_mod_data.options = {
   widgets = {
     {
@@ -19,6 +19,11 @@ dmf_mod_data.options = {
       default_value = 100,
       range         = {50, 500},
       unit_text     = "percent"
+    },
+    {
+      setting_id    = "dmf_options_remember_scroll_position",
+      type          = "checkbox",
+      default_value = true
     },
     {
       setting_id    = "developer_mode",
@@ -38,6 +43,25 @@ dmf_mod_data.options = {
           keybind_trigger = "pressed",
           keybind_type    = "function_call",
           function_name   = "toggle_developer_console"
+        },
+        {
+          setting_id      = "reload_mods",
+          type            = "keybind",
+          default_value   = {"r", "left shift", "left ctrl"},
+          keybind_global  = true,
+          keybind_trigger = "pressed",
+          keybind_type    = "function_call",
+          function_name   = "request_mod_reload"
+        },
+        {
+          setting_id    = "log_to_developer_console",
+          type          = "checkbox",
+          default_value = true
+        },
+        {
+          setting_id    = "show_mod_option_ids",
+          type          = "checkbox",
+          default_value = false
         },
         -- {
         --   setting_id    = "show_network_debug_info",
@@ -198,6 +222,12 @@ dmf_mod_data.options = {
 -- ##### DMF internal functions and variables #########################################################################
 -- ####################################################################################################################
 
+dmf.request_mod_reload = function ()
+  if dmf:get("developer_mode") then
+    Managers.mod._reload_requested = true
+  end
+end
+
 dmf.on_setting_changed = function (setting_id)
 
   if setting_id == "dmf_options_scrolling_speed" then
@@ -214,7 +244,8 @@ dmf.on_setting_changed = function (setting_id)
     dmf.load_custom_textures_settings()
     dmf.load_dev_console_settings()
 
-  elseif setting_id == "show_developer_console" then
+  elseif setting_id == "show_developer_console"
+      or setting_id == "log_to_developer_console" then
 
     dmf.load_dev_console_settings()
 
@@ -257,6 +288,19 @@ end
 -- ####################################################################################################################
 -- ##### Script #######################################################################################################
 -- ####################################################################################################################
+
+-- Reloading is handled by the configurable DMF keybind.
+dmf:hook_origin(CLASS.ModManager, "_check_reload", function ()
+  return false
+end)
+
+-- Restore the default binding if the existing setting is bound to Esc.
+local open_dmf_options_keybind = dmf:get("open_dmf_options")
+if type(open_dmf_options_keybind) == "table"
+    and #open_dmf_options_keybind == 1
+    and open_dmf_options_keybind[1] == "esc" then
+  dmf:set("open_dmf_options", {"f4"})
+end
 
 dmf.initialize_mod_data(dmf, dmf_mod_data)
 

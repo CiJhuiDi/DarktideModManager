@@ -116,6 +116,8 @@ function new_mod(mod_name, mod_resources)
     return
   end
 
+  dmf.initialize_mod_packages(mod)
+
   -- Load mod components: localization, data and script. NOTE: Order here is important.
   if not (
     load_mod_resource(mod, mod_resources, "localization") and
@@ -123,6 +125,7 @@ function new_mod(mod_name, mod_resources)
     load_mod_resource(mod, mod_resources, "script") -- @TODO: Check that this isn't a table.
   )
   then
+    dmf.release_mod_packages(mod)
     return
   end
 

@@ -39,6 +39,8 @@ local SUPPORTED_DEVICES = {
   "mouse",
 }
 
+local MOUSE_KEY_PREFIX = "mouse "
+
 -- #####################################################################################################################
 -- ##### Local functions ###############################################################################################
 -- #####################################################################################################################
@@ -191,6 +193,38 @@ local function get_corresponding_device(key_id)
           key_id = key_id,
         }
       end
+    end
+  end
+end
+
+
+local function global_key_to_setting_key(global_name)
+  local device_type = InputUtils.key_device_type(global_name)
+  local local_name = device_type and InputUtils.local_key_name(global_name, device_type)
+
+  if device_type == "mouse" and local_name then
+    return MOUSE_KEY_PREFIX .. string.gsub(local_name, "_", " ")
+  end
+
+  return local_name
+end
+
+
+local function setting_key_to_global_key(setting_key)
+  local mouse_key = string.match(setting_key, "^" .. MOUSE_KEY_PREFIX .. "(.+)$")
+
+  if mouse_key then
+    local local_name = string.gsub(mouse_key, " ", "_")
+    local global_name = InputUtils.local_to_global_name(local_name, "mouse")
+
+    return get_corresponding_device(global_name) and global_name or nil
+  end
+
+  for _, device_type in ipairs(SUPPORTED_DEVICES) do
+    local global_name = InputUtils.local_to_global_name(setting_key, device_type)
+
+    if get_corresponding_device(global_name) then
+      return global_name
     end
   end
 end
@@ -369,7 +403,7 @@ function dmf.can_bind_as_primary_key(key_id)
 end
 
 
--- Translate keywatch result to array of local key names
+-- Translate keywatch result to array of setting key names
 -- (Used in keybind widget for compatibility with legacy settings)
 function dmf.keywatch_result_to_local_keys(keywatch_result)
   local keys = {}
@@ -378,7 +412,7 @@ function dmf.keywatch_result_to_local_keys(keywatch_result)
   if keywatch_result.main then
 
     local global_name = keywatch_result.main
-    local local_name = InputUtils.local_key_name(global_name, InputUtils.key_device_type(global_name))
+    local local_name = global_key_to_setting_key(global_name)
 
     -- Check for a missing or unbindable primary key name
     if not local_name or not dmf.can_bind_as_primary_key(local_name) then
@@ -391,8 +425,11 @@ function dmf.keywatch_result_to_local_keys(keywatch_result)
   -- Add the enablers keys as additional keys
   if keywatch_result.enablers then
     for _, global_name in ipairs(keywatch_result.enablers) do
-      local local_name = InputUtils.local_key_name(global_name, InputUtils.key_device_type(global_name))
-      keys[#keys + 1] = local_name
+      local local_name = global_key_to_setting_key(global_name)
+
+      if local_name then
+        keys[#keys + 1] = local_name
+      end
     end
   end
 
@@ -400,7 +437,7 @@ function dmf.keywatch_result_to_local_keys(keywatch_result)
 end
 
 
--- Translate array of local key names to keywatch result
+-- Translate array of setting key names to keywatch result
 -- (Used in keybind widget for compatibility with legacy settings)
 function dmf.local_keys_to_keywatch_result(keys)
   local keywatch_result = {
@@ -414,15 +451,7 @@ function dmf.local_keys_to_keywatch_result(keys)
 
   if keys[1] then
     local local_name = keys[1]
-    local global_name
-
-    -- Check all supported devices for the global name
-    for _, device_type in ipairs(SUPPORTED_DEVICES) do
-      global_name = InputUtils.local_to_global_name(local_name, device_type)
-      if get_corresponding_device(global_name) then
-        break
-      end
-    end
+    local global_name = setting_key_to_global_key(local_name)
 
     -- End early if our main key doesn't exist, and return an empty result
     if not global_name then
@@ -438,15 +467,7 @@ function dmf.local_keys_to_keywatch_result(keys)
   -- Add all remaining keys to the enablers list
   for i = 2, #keys do
     local local_name = keys[i]
-    local global_name
-
-    -- Check all supported devices for the global name
-    for _, device_type in ipairs(SUPPORTED_DEVICES) do
-      global_name = InputUtils.local_to_global_name(local_name,device_type)
-      if get_corresponding_device(global_name) then
-        break
-      end
-    end
+    local global_name = setting_key_to_global_key(local_name)
 
     if global_name then
       if MODIFIER_KEYS_LOC_ALIAS[global_name] then

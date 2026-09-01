@@ -102,8 +102,15 @@ local function printf(f, ...)
 end
 
 
+local function log_and_console_printf(f, ...)
+  dmf.developer_console_print(string_format(f, ...))
+end
+
+
 local function send_to_log(self, msg_type, message)
-  printf("[MOD][%s][%s] %s", self:get_name(), string.upper(msg_type), message)
+  local is_console_logging_enabled = dmf.is_developer_console_logging_enabled
+  local output = is_console_logging_enabled and is_console_logging_enabled() and log_and_console_printf or printf
+  output("[MOD][%s][%s] %s", self:get_name(), string.upper(msg_type), message)
 end
 
 

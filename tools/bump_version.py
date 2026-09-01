@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """全量版本号升级脚本。
 用法: python tools/bump_version.py 0.3.0
 替换范围: version_info.txt / static/index.html / README.txt / 使用指南.txt
@@ -6,7 +6,7 @@
 """
 import io, re, sys
 
-OLD = "0.4.1"  # 当前版本（如升级路径变化需同步改这里）
+OLD = "0.5.0"  # 当前版本（如升级路径变化需同步改这里）
 NEW = sys.argv[1] if len(sys.argv) > 1 else "0.3.0"
 
 FILES = [

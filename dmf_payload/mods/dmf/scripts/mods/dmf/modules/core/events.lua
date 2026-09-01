@@ -86,6 +86,19 @@ end
 
 
 --[[
+  EVENT: on_settings_reset ()
+
+  Is called after all settings on a mod's options page have been reset to their default values.
+--]]
+function dmf.mod_settings_reset_event(mod)
+
+  local event_name = "on_settings_reset"
+
+  run_event(mod, event_name)
+end
+
+
+--[[
   EVENT: on_enabled (initial_call)
 
   Is called when mod state is set to 'enabled'. Is called only for mods who set 'is_togglable'

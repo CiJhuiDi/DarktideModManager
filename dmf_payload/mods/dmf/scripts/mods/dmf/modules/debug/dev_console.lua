@@ -16,30 +16,87 @@ local _console_data = dmf:persistent_table("dev_console_data")
 if not _console_data.enabled then _console_data.enabled = false end
 if not _console_data.original_print then _console_data.original_print = print end
 
+local _log_to_developer_console
+
 -- ####################################################################################################################
 -- ##### Local functions ##############################################################################################
 -- ####################################################################################################################
 
+local function bind_dev_console_output()
+  if not _ffi then
+    return
+  end
+
+  _ffi.cdef([[
+    void* CreateFileA(const char* lpFileName, uint32_t dwDesiredAccess, uint32_t dwShareMode, void* lpSecurityAttributes, uint32_t dwCreationDisposition, uint32_t dwFlagsAndAttributes, void* hTemplateFile);
+    int SetStdHandle(uint32_t nStdHandle, void* hHandle);
+  ]])
+
+  local output_handle = _ffi.C.CreateFileA("CONOUT$", 0xC0000000, 0x3, nil, 0x3, 0, nil)
+  local invalid_handle = _ffi.cast("void *", -1)
+
+  if output_handle == nil or output_handle == invalid_handle then
+    dmf:error("(developer console) could not open CONOUT$")
+    return
+  end
+
+  if _ffi.C.SetStdHandle(0xfffffff5, output_handle) == 0 then
+    dmf:error("(developer console) could not bind stdout to CONOUT$")
+  end
+end
+
+local function disable_dev_console_close()
+  if not _ffi then
+    return
+  end
+
+  _ffi.cdef([[
+    void* GetConsoleWindow(void);
+    void* GetSystemMenu(void* hWnd, int bRevert);
+    uint32_t EnableMenuItem(void* hMenu, uint32_t uIDEnableItem, uint32_t uEnable);
+    int DrawMenuBar(void* hWnd);
+  ]])
+
+  local hwnd = _ffi.C.GetConsoleWindow()
+  if hwnd == nil then
+    dmf:error("(developer console) could not get the console window")
+    return
+  end
+
+  local system_menu = _ffi.C.GetSystemMenu(hwnd, 0)
+  if system_menu == nil then
+    dmf:error("(developer console) could not get the console system menu")
+    return
+  end
+
+  local SC_CLOSE = 0xf060
+  local MF_GRAYED = 0x1
+  if _ffi.C.EnableMenuItem(system_menu, SC_CLOSE, MF_GRAYED) == 0xffffffff then
+    dmf:error("(developer console) could not disable the console close command")
+    return
+  end
+
+  if _ffi.C.DrawMenuBar(hwnd) == 0 then
+    dmf:error("(developer console) could not redraw the console menu bar")
+  end
+end
+
+local function log_and_console_print(...)
+  CommandWindow.print(...)
+  _console_data.original_print(...)
+end
+
 local function open_dev_console()
 
   if not _console_data.enabled then
-
-    local print_hook_function = function(func, ...)
-      if _console_data.enabled then
-        CommandWindow.print(...)
-        func(...)
-      else
-        func(...)
-      end
-    end
-
-    print = function(...)
-      print_hook_function(_console_data.original_print, ...)
-    end
-
     CommandWindow.open("Developer console")
+    -- Closing the command window directly signals an application exit, so only DMF may close it safely.
+    disable_dev_console_close()
+    bind_dev_console_output()
     _console_data.enabled = true
   end
+
+  print = log_and_console_print
 end
 
 local function close_dev_console()
@@ -77,6 +134,12 @@ end
 -- ##### DMF internal functions and variables #########################################################################
 -- ####################################################################################################################
 
+dmf.developer_console_print = log_and_console_print
+
+dmf.is_developer_console_logging_enabled = function()
+  return _console_data.enabled and _log_to_developer_console
+end
+
 dmf.toggle_developer_console = function ()
 
   if dmf:get("developer_mode") then
@@ -95,6 +158,8 @@ dmf.toggle_developer_console = function ()
 end
 
 dmf.load_dev_console_settings = function()
+
+  _log_to_developer_console = dmf:get("log_to_developer_console") ~= false
 
   if dmf:get("developer_mode") and dmf:get("show_developer_console") then
     open_dev_console()

@@ -2,17 +2,18 @@
 local dmf = get_mod("DMF")
 
 local _view_settings = dmf:io_dofile("dmf/scripts/mods/dmf/modules/ui/options/dmf_options_view_settings")
+local ColorWidget = dmf:io_dofile("dmf/scripts/mods/dmf/modules/ui/options/color/color_widget")
+local NumericInput = dmf:io_dofile("dmf/scripts/mods/dmf/modules/ui/options/numeric/numeric_input")
+local TextInputWidget = dmf:io_dofile("dmf/scripts/mods/dmf/modules/ui/options/text_input/text_input_widget")
+local TextWidget = dmf:io_dofile("dmf/scripts/mods/dmf/modules/ui/options/text/text_widget")
 
 local ButtonPassTemplates = require("scripts/ui/pass_templates/button_pass_templates")
 local CheckboxPassTemplates = require("scripts/ui/pass_templates/checkbox_pass_templates")
 local DropdownPassTemplates = require("scripts/ui/pass_templates/dropdown_pass_templates")
-local TextInputPassTemplates = require("scripts/ui/pass_templates/text_input_pass_templates") 
 local InputUtils = require("scripts/managers/input/input_utils")
 local KeybindPassTemplates = require("scripts/ui/pass_templates/keybind_pass_templates")
 local SliderPassTemplates = require("scripts/ui/pass_templates/slider_pass_templates")
-local UIFonts = require("scripts/managers/ui/ui_fonts")
 local UIFontSettings = require("scripts/managers/ui/ui_font_settings")
-local UIRenderer = require("scripts/managers/ui/ui_renderer")
 
 local grid_size = _view_settings.grid_size
 local grid_width = grid_size[1]
@@ -21,9 +22,13 @@ local settings_grid_width = 1000
 local settings_value_width = 500
 local settings_value_height = 64
 
-local group_header_height = 80
+local group_header_height = 50
+local group_header_spacing = 20
 
 local DEFAULT_NUM_DECIMALS = 0
+local BUTTON_HOLD_INPUT_ACTION = "confirm_hold"
+local BUTTON_HOLD_COLOR = Color.ui_terminal(255, true)
+local BUTTON_DISABLED_HOLD_COLOR = Color.ui_grey_medium(255, true)
 
 local _dropdown_deadzone = 0.25 -- 250ms delay before opening keybind popups
 local _last_dropdown_pressed = -1
@@ -35,15 +40,79 @@ value_font_style.offset = {
   8
 }
 
-local description_font_style = table.clone(UIFontSettings.list_button)
-description_font_style.offset = {
-  25,
-  0,
-  3
-}
-
 local header_font_style = table.clone(UIFontSettings.header_2)
 header_font_style.text_vertical_alignment = "bottom"
+
+local function update_held_button_text(content)
+  local hotspot = content.hotspot
+  local color = hotspot.disabled and BUTTON_DISABLED_HOLD_COLOR or BUTTON_HOLD_COLOR
+  local button_text = content.original_button_text
+  local input_text
+
+  if hotspot.gamepad_active then
+    local service_type = "View"
+    local alias_key = Managers.ui:get_input_alias_key(BUTTON_HOLD_INPUT_ACTION, service_type)
+
+    input_text = InputUtils.input_text_for_current_input_device(service_type, alias_key)
+  end
+
+  if input_text then
+    content.button_text = string.format(
+      "{#color(%d,%d,%d)}%s %s{#reset()} %s",
+      color[2], color[3], color[4], Localize("loc_input_hold"), input_text, button_text
+    )
+  else
+    content.button_text = string.format(
+      "{#color(%d,%d,%d)}%s{#reset()} %s",
+      color[2], color[3], color[4], Localize("loc_input_hold"), button_text
+    )
+  end
+end
+
+
+local function button_pass_template(parent, config, size)
+  local passes = ButtonPassTemplates.settings_button(size[1], settings_value_height, settings_value_width, true)
+
+  if config.button_trigger ~= "held" then
+    return passes
+  end
+
+  local header_width = size[1] - settings_value_width
+  local hold_pass = {
+    pass_type = "rect",
+    style_id = "hold",
+    style = {
+      horizontal_alignment = "left",
+      vertical_alignment = "top",
+      color = { 150, 0, 0, 0 },
+      offset = { header_width, 0, 3 },
+      size = { 0, settings_value_height },
+    },
+    change_function = function (content, style)
+      style.size[1] = settings_value_width * (content.hold_progress or 0)
+    end,
+  }
+
+  for i = 1, #passes do
+    local pass = passes[i]
+
+    if pass.value_id == "button_text" then
+      local change_function = pass.change_function
+
+      pass.change_function = function (content, style)
+        update_held_button_text(content)
+        change_function(content, style)
+      end
+
+      table.insert(passes, i, hold_pass)
+
+      break
+    end
+  end
+
+  return passes
+end
+
 
 local blueprints = {
   spacing_vertical = {
@@ -82,35 +151,58 @@ local blueprints = {
       settings_grid_width,
       settings_value_height
     },
-    pass_template = ButtonPassTemplates.settings_button(settings_grid_width, settings_value_height, settings_value_width, true),
+    pass_template_function = button_pass_template,
     init = function (parent, widget, entry, callback_name, changed_callback_name)
       local content = widget.content
+      local hotspot = content.hotspot
 
-      content.hotspot.pressed_callback = function ()
-        local is_disabled = entry.disabled or false
+      content.text = entry.display_name
+      content.button_text = entry.button_text
+      content.original_button_text = entry.button_text
+      content.entry = entry
 
-        if is_disabled then
+      local pressed_callback = function ()
+        if entry.disabled then
           return
         end
 
         callback(parent, callback_name, widget, entry)()
       end
 
-      local display_name = entry.display_name
-      content.text = display_name
-      content.button_text = Localize("loc_settings_change")
-      content.entry = entry
-
-      entry.changed_callback = function (changed_value)
-        callback(parent, changed_callback_name, widget, entry)()
+      if entry.button_trigger == "held" then
+        content.timer = entry.button_hold_duration
+        content.current_timer = 0
+        content.hold_progress = 0
+        content.start_delay = 0
+        content.input_action = BUTTON_HOLD_INPUT_ACTION
+        content.keep_hold_active = false
+        content.complete_function = pressed_callback
+        hotspot.pressed_callback = nil
+      else
+        hotspot.pressed_callback = pressed_callback
       end
-    end
+    end,
+    update = function (parent, widget, input_service, dt, t)
+      local content = widget.content
+      local entry = content.entry
+      local is_disabled = entry.disabled or false
+
+      content.disabled = is_disabled
+      content.hotspot.disabled = is_disabled
+
+      if entry.button_trigger == "held" then
+        ButtonPassTemplates.terminal_button_hold_small.update(parent, widget, {
+          input_service = input_service,
+        }, dt)
+      end
+    end,
   },
   group_header = {
     size = {
       settings_grid_width,
       group_header_height
     },
+    spacing_before = group_header_spacing,
     pass_template = {
       {
         pass_type = "text",
@@ -139,6 +231,10 @@ local blueprints = {
       content.text = display_name
       content.entry = entry
 
+      if entry.controls_sub_widgets then
+        content.dynamic_visibility_value = entry:get_function()
+      end
+
       for i = 1, 2 do
         local widget_option_id = "option_" .. i
         content[widget_option_id] = i == 1 and Managers.localization:localize("loc_setting_checkbox_on") or Managers.localization:localize("loc_setting_checkbox_off")
@@ -146,7 +242,7 @@ local blueprints = {
 
       entry.changed_callback = function (changed_value)
         --callback(parent, callback_name, widget, entry)()
-        callback(parent, changed_callback_name, widget, entry)()
+        callback(parent, changed_callback_name, widget, entry, changed_value)()
       end
     end,
     update = function (parent, widget, input_service, dt, t)
@@ -159,6 +255,11 @@ local blueprints = {
       local is_disabled = entry.disabled or false
       content.disabled = is_disabled
       local new_value = nil
+
+      if entry.controls_sub_widgets and content.dynamic_visibility_value ~= value then
+        content.dynamic_visibility_value = value
+        parent:cb_on_dynamic_setting_value_changed(widget, entry, value)
+      end
 
       if hotspot.on_pressed and not parent._navigation_column_changed_this_frame and not is_disabled then
         new_value = not value
@@ -178,6 +279,8 @@ local blueprints = {
     end
   }
 }
+
+blueprints.color = ColorWidget.create_blueprint(settings_grid_width, settings_value_width, settings_value_height)
 
 local function slider_init_function(parent, widget, entry, callback_name, changed_callback_name)
   local content = widget.content
@@ -311,10 +414,13 @@ blueprints.value_slider = {
     settings_value_height
   },
   pass_template_function = function (parent, config, size)
-    return SliderPassTemplates.settings_value_slider(size[1], settings_value_height, settings_value_width, true)
+    local passes = SliderPassTemplates.settings_value_slider(size[1], settings_value_height, settings_value_width, true)
+
+    return NumericInput.add_passes(parent, config, passes, settings_value_height)
   end,
   init = function (parent, widget, entry, callback_name, changed_callback_name)
     slider_init_function(parent, widget, entry, callback_name, changed_callback_name)
+    NumericInput.init(widget, entry)
   end,
   update = function (parent, widget, input_service, dt, t)
     local content = widget.content
@@ -323,6 +429,11 @@ blueprints.value_slider = {
     local is_disabled = entry.disabled or false
     content.disabled = is_disabled
     local using_gamepad = not parent:using_cursor_navigation()
+
+    if NumericInput.update(parent, widget, entry, input_service, using_gamepad, is_disabled) then
+      return false
+    end
+
     local min_value = entry.min_value
     local max_value = entry.max_value
     local get_function = entry.get_function
@@ -368,7 +479,8 @@ blueprints.value_slider = {
     local display_value = format_value_function(drag_value or value)
 
     if display_value then
-      content.value_text = display_value
+      content.value_text = entry.unit_text and string.format("%s %s", display_value, entry.unit_text) or display_value
+      NumericInput.sync(widget, display_value)
     end
 
     local hotspot = content.hotspot
@@ -390,7 +502,10 @@ blueprints.value_slider = {
     end
 
     if new_normalized_value then
+      new_normalized_value = math.clamp(new_normalized_value, 0, 1)
+
       local new_value = explode_function(new_normalized_value, entry)
+      new_normalized_value = math.normalize_01(new_value, min_value, max_value)
 
       on_activated(new_value, entry)
       entry.changed_callback(new_value)
@@ -516,6 +631,80 @@ blueprints.slider = {
 }
 
 local max_visible_options = _view_settings.max_visible_dropdown_options or 5
+local DROPDOWN_ICON_ANCHOR_STYLE_ID = "dropdown_icon_anchor"
+
+local function update_dropdown_icon_anchor()
+end
+
+local function dropdown_icon_anchor_pass(pass_template)
+  local value_icon_pass_index
+  local value_icon_style
+
+  for i = 1, #pass_template do
+    local pass = pass_template[i]
+
+    if pass.style_id == "icon" then
+      value_icon_pass_index = i
+      value_icon_style = pass.style
+
+      break
+    end
+  end
+
+  local icon_center_x = value_icon_style.offset[1] + value_icon_style.size[1] * 0.5
+  local anchor_pass = {
+    pass_type = "logic",
+    style_id = DROPDOWN_ICON_ANCHOR_STYLE_ID,
+    value = update_dropdown_icon_anchor,
+    style = {
+      horizontal_alignment = "right",
+      vertical_alignment = "center",
+      size = { 0, 0 },
+      offset = {
+        icon_center_x - settings_grid_width,
+        0,
+        0,
+      },
+    },
+  }
+
+  table.insert(pass_template, value_icon_pass_index, anchor_pass)
+
+  for i = value_icon_pass_index + 1, #pass_template do
+    local pass = pass_template[i]
+    local style_id = pass.style_id
+
+    if style_id == "icon" or style_id and string.match(style_id, "^option_icon_%d+$") then
+      local style = pass.style
+
+      style.inherit_pass_transform = DROPDOWN_ICON_ANCHOR_STYLE_ID
+      style.horizontal_alignment = "center"
+      style.vertical_alignment = "center"
+      style.offset[1] = 0
+    end
+  end
+
+  return pass_template
+end
+
+local function apply_dropdown_icon_style(style, default_style, icon_style)
+  table.create_copy(style, default_style)
+
+  if not icon_style then
+    return
+  end
+
+  table.merge_recursive(style, icon_style)
+
+  local offset = icon_style.offset
+
+  if offset then
+    for i = 1, #default_style.offset do
+      style.offset[i] = default_style.offset[i] + (offset[i] or 0)
+    end
+  end
+end
+
 blueprints.dropdown = {
   size = {
     settings_grid_width,
@@ -528,7 +717,15 @@ blueprints.dropdown = {
     local options = entry.options_function and entry.options_function() or entry.options
     local num_visible_options = math.min(#options, max_visible_options)
 
-    return DropdownPassTemplates.settings_dropdown(size[1], settings_value_height, settings_value_width, num_visible_options, true)
+    local pass_template = DropdownPassTemplates.settings_dropdown(
+      size[1],
+      settings_value_height,
+      settings_value_width,
+      num_visible_options,
+      true
+    )
+
+    return dropdown_icon_anchor_pass(pass_template)
   end,
   init = function (parent, widget, entry, callback_name, changed_callback_name)
     local content = widget.content
@@ -553,6 +750,27 @@ blueprints.dropdown = {
     content.number_format = number_format
     content.options_by_value = options_by_value
     content.options = options
+    local has_custom_icon_styles = false
+
+    for i = 1, num_options do
+      if options[i].icon_style then
+        has_custom_icon_styles = true
+
+        break
+      end
+    end
+
+    if has_custom_icon_styles then
+      content.default_icon_styles = {
+        value = table.clone(widget.style.icon),
+        options = {},
+      }
+      content.applied_option_icon_styles = {}
+
+      for i = 1, num_visible_options do
+        content.default_icon_styles.options[i] = table.clone(widget.style["option_icon_" .. i])
+      end
+    end
 
     content.hotspot.pressed_callback = function ()
       local is_disabled = entry.disabled or false
@@ -574,6 +792,10 @@ blueprints.dropdown = {
     local scroll_amount = scroll_length > 0 and (size[2] + spacing) / scroll_length or 0
     content.scroll_amount = scroll_amount
     local value = entry.get_function and entry:get_function() or entry.default_value
+
+    if entry.controls_sub_widgets then
+      content.dynamic_visibility_value = value
+    end
 
     entry.changed_callback = function (changed_value)
       callback(parent, changed_callback_name, widget, entry, changed_value)()
@@ -617,11 +839,28 @@ blueprints.dropdown = {
 
     value = entry.get_function and entry:get_function() or content.internal_value or "<not selected>"
 
+    if entry.controls_sub_widgets and content.dynamic_visibility_value ~= value then
+      content.dynamic_visibility_value = value
+      parent:cb_on_dynamic_setting_value_changed(widget, entry, value)
+    end
+
     local preview_option = options_by_value[value]
     local preview_option_value = preview_option and preview_option.value
     local preview_value = preview_option and preview_option.display_name or Managers.localization:localize("loc_settings_option_unavailable")
+    local preview_icon = preview_option and preview_option.icon
+    local preview_icon_style = preview_option and preview_option.icon_style
+    local has_preview_icon = not not preview_icon
 
     content.value_text = preview_value
+    content.value_icon = preview_icon
+    style.text.offset = has_preview_icon and style.text.icon_offset or style.text.default_offset
+
+    if content.default_icon_styles and content.applied_preview_icon_style ~= preview_icon_style then
+      apply_dropdown_icon_style(style.icon, content.default_icon_styles.value, preview_icon_style)
+      content.applied_preview_icon_style = preview_icon_style
+    end
+
+    style.icon.visible = has_preview_icon
 
     local widget_type = widget.type
     local template = blueprints[widget_type]
@@ -705,6 +944,7 @@ blueprints.dropdown = {
       end
 
       local option_text_id = "option_text_" .. option_index
+      local option_icon_id = "option_icon_" .. option_index
       local option_hotspot_id = "option_hotspot_" .. option_index
       local outline_style_id = "outline_" .. option_index
       local option_hotspot = content[option_hotspot_id]
@@ -719,10 +959,32 @@ blueprints.dropdown = {
       end
 
       local option_display_name = option.display_name
+      local option_icon = option.icon
+      local option_icon_style = option.icon_style
+      local has_option_icon = not not option_icon
+
+      content[option_icon_id] = option_icon
       content[option_text_id] = option_display_name
       local options_y = size[2] * option_index
       style[option_hotspot_id].offset[2] = grow_downwards and options_y or -options_y
       style[option_text_id].offset[2] = grow_downwards and options_y or -options_y
+
+      if content.default_icon_styles
+        and content.applied_option_icon_styles[option_index] ~= option_icon_style then
+        apply_dropdown_icon_style(
+          style[option_icon_id],
+          content.default_icon_styles.options[option_index],
+          option_icon_style
+        )
+        content.applied_option_icon_styles[option_index] = option_icon_style
+      end
+
+      style[option_icon_id].offset[2] = (grow_downwards and options_y or -options_y)
+        + (option_icon_style and option_icon_style.offset and option_icon_style.offset[2] or 0)
+      style[option_text_id].offset[1] = has_option_icon
+        and style[option_text_id].icon_offset[1]
+        or style[option_text_id].default_offset[1]
+      style[option_icon_id].visible = has_option_icon
       local entry_length = using_scrollbar and settings_value_width - style.scrollbar_hotspot.size[1] or settings_value_width
       style[outline_style_id].size[1] = entry_length
       style[option_text_id].size[1] = settings_value_width
@@ -779,148 +1041,11 @@ blueprints.keybind = {
   end
 }
 
--- Copied the colors from the checkbox for the text input label
-local text_input_label_style = table.clone(UIFontSettings.header_4)
-text_input_label_style.offset = { 30, 0, 3 }
-text_input_label_style.text_horizontal_alignment = "left"
-text_input_label_style.text_vertical_alignment = "center"
-text_input_label_style.text_color = Color.terminal_text_body(255, true)
-
-blueprints.text_input = {
- size = { settings_grid_width, settings_value_height },
-  
- pass_template_function = function (parent, config, size)
-    local passes = table.clone(TextInputPassTemplates.simple_input_field)
-
-    table.insert(passes, {
-        value_id = "text",
-        pass_type = "text",
-        style = text_input_label_style, 
-    })
-
-    local x_offset = settings_grid_width - settings_value_width
-
-    for i = 1, #passes do
-      local pass = passes[i]
-      local style_id = pass.style_id or pass.value_id
-
-      if style_id ~= "text" then
-        pass.style = pass.style or {}
-        
-        pass.style.offset = pass.style.offset or { 0, 0, 0 }
-        pass.style.offset[1] = pass.style.offset[1] + x_offset
-        
-        if style_id == "background" or style_id == "focused" or pass.pass_type == "hotspot" then
-          pass.style.size = { settings_value_width, settings_value_height }
-        end
-        if style_id == "baseline" then
-          pass.style.size = { settings_value_width, 2 }
-          -- We force 'top' alignment so the Y offset (62) puts it exactly 
-          -- at the bottom of our 64px tall row.
-          pass.style.vertical_alignment = "top" 
-          pass.style.offset[2] = settings_value_height - 2
-        end
-
-        if pass.pass_type == "text" or pass.pass_type == "text_input" then
-          pass.style.size = { settings_value_width - 20, settings_value_height }
-          pass.style.offset[1] = pass.style.offset[1] + 10
-          pass.style.text_horizontal_alignment = "left"
-          pass.style.text_vertical_alignment = "center"
-        end
-      end
-    end
-
-    return passes
-  end,
-
-  init = function (parent, widget, entry, callback_name, changed_callback_name)
-    local content = widget.content
-    local style = widget.style
-
-    -- Set the initial text from the mod's current setting
-    if type(entry.default_value) == "table" then
-        entry.default_value = entry.default_value[1] or ""
-    end
-    local current_val = entry.get_function and entry.get_function() or ""
-    if type(current_val) == "table" then
-        current_val = current_val[1] or ""
-    end
-    content.input_text = current_val
-    content.text = entry.display_name or Managers.localization:localize("loc_settings_option_unavailable")
-    content.entry = entry
-    content.hint_text = "Enter text..."
-    -- Update the mod:get() value for this widget to whatever the current input_text is. This fixes a bug
-    -- where it returns a table instead of the table string since text_input reuses keybind functionality
-    entry.on_activated(content.input_text, entry)
-    
-    -- Sync changes back to the mod when the user finishes typing
-    entry.changed_callback = function (changed_value)
-      if entry.on_activated then
-        entry.on_activated(changed_value, entry)
-      end
-    end
-  end,
-  update = function (parent, widget, input_service, dt, t)
-    local content = widget.content
-    local entry = content.entry
-    local devices = entry.devices
-    if content and content.is_writing and input_service then
-        -- We only run logic if we have the service
-        local clicked_away = input_service:get("left_pressed") and not content.hotspot.is_hover
-        local pressed_escape = input_service:get("back")
-        if clicked_away or pressed_escape then
-            content.is_writing = false
-            entry.changed_callback(content.input_text)
-        end
-    end
-    
-    if content.hotspot.is_focused or content.is_writing then
-        parent.is_text_input_focused = true
-    else 
-      parent.is_text_input_focused = false
-    end 
-  end
-}
-
-local description_font_style = table.clone(UIFontSettings.body_small)
-description_font_style.offset = {
-  25,
-  0,
-  3
-}
-description_font_style.text_horizontal_alignment = "left"
-description_font_style.text_vertical_alignment = "center"
-description_font_style.hover_text_color = Color.ui_brown_super_light(255, true)
-
-blueprints.description = {
-  size = {
-    settings_grid_width - 225,
-    settings_value_height
-  },
-  pass_template = {
-    {
-      value_id = "text",
-      pass_type = "text",
-      style_id = "text",
-      style = description_font_style,
-      value = Localize("loc_settings_option_unavailable")
-    }
-  },
-  init = function (parent, widget, entry, callback_name)
-    local content = widget.content
-    local style = widget.style
-    local text_style = style.text
-    local display_text = entry.display_name
-    local ui_renderer = parent._ui_renderer
-    local size = content.size
-    local text_options = UIFonts.get_font_options_by_style(text_style)
-    local _, height = UIRenderer.text_size(ui_renderer, display_text, text_style.font_type, text_style.font_size, size, text_options)
-    size[2] = math.ceil(height)
-    content.text = display_text
-  end,
-  update = function (parent, widget, input_service, dt, t)
-    return
-  end
-}
+blueprints.text = TextWidget.create_blueprint(settings_grid_width, settings_value_width, settings_value_height)
+blueprints.text_input = TextInputWidget.create_blueprint(
+  settings_grid_width,
+  settings_value_width,
+  settings_value_height
+)
 
 return settings("DMFOptionsViewContentBlueprints", blueprints)

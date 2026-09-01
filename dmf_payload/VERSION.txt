@@ -2,7 +2,7 @@ DMF 内置组件（一键安装用）
 ==========================
 项目主页：https://github.com/CiJhuiDi/DarktideModManager
 
-来源（2026-08-14 更新为官方原版）：
+来源（2026-09-02 更新为官方 master 2026-08-19 提交，汉化已合并）：
 - mods/base/            Darktide Mod Loader 官方 master（mod_manager.lua + function/*）
                         负责读取 mod_load_order.txt 并按序加载 mod
                         官方：https://github.com/Darktide-Mod-Framework/Darktide-Mod-Loader

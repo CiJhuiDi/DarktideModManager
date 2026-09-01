@@ -48,14 +48,10 @@ local function initialize_header_data(mod, data)
   new_data.mod_name          = mod:get_name()
   new_data.readable_mod_name = mod:get_readable_name()
   new_data.description       = mod:get_description()
+  new_data.version           = mod:get_metadata("version")
+  new_data.author            = mod:get_metadata("author")
   new_data.is_togglable      = mod:get_internal_data("is_togglable") and not mod:get_internal_data("is_mutator")
   new_data.is_collapsed      = dmf:get("options_menu_collapsed_mods")[mod:get_name()]
-
-  for _, favorited_mod_name in ipairs(dmf:get("options_menu_favorite_mods")) do
-    if favorited_mod_name == new_data.mod_name then
-      new_data.is_favorited  = true
-    end
-  end
 
   return new_data
 end
@@ -112,10 +108,11 @@ local function initialize_generic_widget_data(mod, data, localize)
   local new_data = {}
 
   -- Automatically generated values
-  new_data.index         = data.index
-  new_data.parent_index  = data.parent_index
-  new_data.depth         = data.depth
-  new_data.mod_name      = mod:get_name()
+  new_data.index           = data.index
+  new_data.parent_index    = data.parent_index
+  new_data.depth           = data.depth
+  new_data.has_sub_widgets = data.sub_widgets and #data.sub_widgets > 0 or false
+  new_data.mod_name        = mod:get_name()
 
   -- Defined in widget
   new_data.type            = data.type
@@ -155,6 +152,56 @@ local function initialize_group_data(mod, data, localize, collapsed_widgets)
 
   return new_data
 end
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- ----| Button |-------------------------------------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------------------------------------------------
+
+local DEFAULT_BUTTON_HOLD_DURATION = 1
+local allowed_button_triggers = {
+  pressed = true,
+  held = true,
+}
+local function validate_button_data(data)
+  if type(data.button_text) ~= "string" then
+    dmf.throw_error("[widget \"%s\" (button)]: 'button_text' field is required and must have 'string' type",
+                     data.setting_id)
+  end
+
+  if not allowed_button_triggers[data.button_trigger] then
+    dmf.throw_error("[widget \"%s\" (button)]: 'button_trigger' field must contain string \"pressed\" or \"held\"",
+                     data.setting_id)
+  end
+
+  if type(data.function_name) ~= "string" then
+    dmf.throw_error("[widget \"%s\" (button)]: 'function_name' field is required and must have 'string' type",
+                     data.setting_id)
+  end
+
+  if type(data.button_hold_duration) ~= "number" or data.button_hold_duration <= 0 then
+    dmf.throw_error("[widget \"%s\" (button)]: 'button_hold_duration' field must be a positive number",
+                     data.setting_id)
+  end
+end
+
+
+local function initialize_button_data(mod, data, localize)
+  local new_data = initialize_generic_widget_data(mod, data, localize)
+
+  new_data.button_text = data.button_text
+  new_data.button_trigger = data.button_trigger or "pressed"
+  new_data.button_hold_duration = data.button_hold_duration or DEFAULT_BUTTON_HOLD_DURATION
+  new_data.function_name = data.function_name
+
+  validate_button_data(new_data)
+
+  if new_data.localize then
+    new_data.button_text = mod:localize(new_data.button_text)
+  end
+
+  return new_data
+end
+
 
 -- ---------------------------------------------------------------------------------------------------------------------
 -- ----| Checkbox |-----------------------------------------------------------------------------------------------------
@@ -219,7 +266,7 @@ local function validate_dropdown_data(data)
                        "'string', 'number' or 'boolean' type", data.setting_id, i)
     end
 
-    if option.show_widgets and type(option.show_widgets) ~= "table" then
+    if option.show_widgets ~= nil and type(option.show_widgets) ~= "table" then
       dmf.throw_error("[widget \"%s\" (dropdown)]: 'options[%d]'-> 'show_widgets' field must have 'table' type",
                        data.setting_id, i)
     end
@@ -271,7 +318,9 @@ local function initialize_dropdown_data(mod, data, localize, collapsed_widgets)
   -- Where the 2nd set of numbers are the real widget numbers of subwidgets
   if data.sub_widgets ~= nil then
     for i, option in ipairs(data.options) do
-      if option.show_widgets then
+      if option.show_widgets ~= nil then
+        new_data.controls_sub_widgets = true
+
         local new_show_widgets = {}
         for j, sub_widget_index in ipairs(option.show_widgets) do
           if data.sub_widgets[sub_widget_index] then
@@ -367,19 +416,120 @@ local function initialize_keybind_data(mod, data, localize)
 end
 
 -- ---------------------------------------------------------------------------------------------------------------------
+-- ----| Text |---------------------------------------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------------------------------------------------
+
+local function validate_text_value(data, value, value_name)
+  if data.max_length and Utf8.string_length(value) > data.max_length then
+    dmf.throw_error("[widget \"%s\" (text)]: %s exceeds 'max_length'", data.setting_id, value_name)
+  end
+
+  if data.validate and not data.validate(value) then
+    dmf.throw_error("[widget \"%s\" (text)]: %s does not pass the 'validate' function", data.setting_id, value_name)
+  end
+end
+
+
+local function validate_text_data(data)
+  if type(data.default_value) ~= "string" then
+    dmf.throw_error("[widget \"%s\" (text)]: 'default_value' field is required and must have 'string' type",
+                     data.setting_id)
+  end
+
+  if data.placeholder_text ~= nil and type(data.placeholder_text) ~= "string" then
+    dmf.throw_error("[widget \"%s\" (text)]: 'placeholder_text' field must have 'string' type", data.setting_id)
+  end
+
+  local max_length = data.max_length
+
+  if max_length ~= nil and (type(max_length) ~= "number" or max_length < 1 or max_length ~= math.floor(max_length)) then
+    dmf.throw_error("[widget \"%s\" (text)]: 'max_length' field must be a positive integer", data.setting_id)
+  end
+
+  if data.validate ~= nil and type(data.validate) ~= "function" then
+    dmf.throw_error("[widget \"%s\" (text)]: 'validate' field must have 'function' type", data.setting_id)
+  end
+
+  if type(data.show_length_limit) ~= "boolean" then
+    dmf.throw_error("[widget \"%s\" (text)]: 'show_length_limit' field must have 'boolean' type",
+                     data.setting_id)
+  end
+
+  validate_text_value(data, data.default_value, "'default_value'")
+end
+
+
+-- Legacy text settings stored values as arrays; only the first element represented the text value.
+local function migrate_legacy_text_setting(mod, data)
+  local value = mod:get(data.setting_id)
+  local value_type = type(value)
+
+  if value == nil then
+    return
+  elseif value_type == "string" then
+    validate_text_value(data, value, "stored setting")
+
+    return
+  elseif value_type == "table" then
+    local first_value = value[1]
+
+    if first_value == nil then
+      first_value = ""
+    end
+
+    if type(first_value) == "string" then
+      validate_text_value(data, first_value, "stored setting")
+
+      mod:set(data.setting_id, first_value)
+      return
+    end
+  end
+
+  dmf.throw_error("[widget \"%s\" (text)]: stored setting must have 'string' type", data.setting_id)
+end
+
+
+local function initialize_text_data(mod, data, localize)
+  local new_data = initialize_generic_widget_data(mod, data, localize)
+
+  new_data.placeholder_text     = data.placeholder_text
+  new_data.max_length           = data.max_length
+  new_data.validate             = data.validate
+
+  if data.show_length_limit == nil then
+    new_data.show_length_limit = true
+  else
+    new_data.show_length_limit = data.show_length_limit
+  end
+
+  validate_text_data(new_data)
+
+  if new_data.localize and new_data.placeholder_text then
+    new_data.placeholder_text = mod:localize(new_data.placeholder_text)
+  end
+
+  migrate_legacy_text_setting(mod, new_data)
+
+  return new_data
+end
+
+-- ---------------------------------------------------------------------------------------------------------------------
 -- ----| Numeric |------------------------------------------------------------------------------------------------------
 -- ---------------------------------------------------------------------------------------------------------------------
 
 local function validate_numeric_data(data)
-  if data.unit_text and type(data.unit_text) ~= "string" then
+  if data.unit_text ~= nil and type(data.unit_text) ~= "string" then
     dmf.throw_error("[widget \"%s\" (numeric)]: 'unit_text' field must have 'string' type", data.setting_id)
   end
 
-  if type(data.decimals_number) ~= "number" then
-    dmf.throw_error("[widget \"%s\" (numeric)]: 'decimals_number' field must have 'number' type", data.setting_id)
+  if data.step_size_value ~= nil and (type(data.step_size_value) ~= "number" or data.step_size_value <= 0) then
+    dmf.throw_error("[widget \"%s\" (numeric)]: 'step_size_value' field must be a positive number", data.setting_id)
   end
-  if data.decimals_number < 0 then -- @TODO: eventually do max cap as well
-    dmf.throw_error("[widget \"%s\" (numeric)]: 'decimals_number' value can't be lower than zero", data.setting_id)
+
+  if type(data.decimals_number) ~= "number" or data.decimals_number < 0
+    or data.decimals_number ~= math.floor(data.decimals_number) then
+    dmf.throw_error("[widget \"%s\" (numeric)]: 'decimals_number' field must be a non-negative integer",
+                    data.setting_id)
   end
 
   local range = data.range
@@ -425,9 +575,36 @@ local function initialize_numeric_data(mod, data, localize)
   new_data.unit_text       = data.unit_text            -- optional
   new_data.range           = data.range
   new_data.decimals_number = data.decimals_number or 0 -- optional
+  new_data.step_size_value = data.step_size_value      -- optional
 
   validate_numeric_data(new_data)
   localize_numeric_data(mod, new_data)
+
+  return new_data
+end
+
+-- ---------------------------------------------------------------------------------------------------------------------
+-- ----| Color |--------------------------------------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------------------------------------------------
+
+local function validate_color_data(data)
+  if type(data.has_alpha) ~= "boolean" then
+    dmf.throw_error("[widget \"%s\" (color)]: 'has_alpha' field must have 'boolean' type", data.setting_id)
+  end
+end
+
+
+local function initialize_color_data(mod, data, localize)
+  local new_data = initialize_generic_widget_data(mod, data, localize)
+
+  if type(new_data.default_value) == "userdata" and Script.type_name(new_data.default_value) == "Vector4" then
+    new_data.default_value = {
+      Quaternion.to_elements(new_data.default_value),
+    }
+  end
+
+  new_data.has_alpha = data.has_alpha or false
+  validate_color_data(new_data)
 
   return new_data
 end
@@ -441,6 +618,8 @@ local function initialize_widget_data(mod, data, localize, collapsed_widgets)
     return initialize_header_data(mod, data)
   elseif data.type == "group" then
     return initialize_group_data(mod, data, localize, collapsed_widgets)
+  elseif data.type == "button" then
+    return initialize_button_data(mod, data, localize)
   elseif data.type == "checkbox" then
     return initialize_checkbox_data(mod, data, localize, collapsed_widgets)
   elseif data.type == "dropdown" then
@@ -449,7 +628,12 @@ local function initialize_widget_data(mod, data, localize, collapsed_widgets)
     return initialize_keybind_data(mod, data, localize)
   elseif data.type == "numeric" then
     return initialize_numeric_data(mod, data, localize)
+  elseif data.type == "color" then
+    return initialize_color_data(mod, data, localize)
+  elseif data.type == "text" then
+    return initialize_text_data(mod, data, localize)
   elseif data.type == "text_input" then
+    -- The legacy widget reused keybind initialization for its stored value and callback fields.
     return initialize_keybind_data(mod, data, localize)
   end
   -- if data.type is incorrect, returns nil
@@ -533,7 +717,7 @@ end
 local function initialize_default_settings_and_keybinds(mod, initialized_widgets_data)
   for i = 2, #initialized_widgets_data do
     local data = initialized_widgets_data[i]
-    if mod:get(data.setting_id) == nil and data.type ~= "group" then
+    if mod:get(data.setting_id) == nil and data.type ~= "group" and data.type ~= "button" then
       mod:set(data.setting_id, data.default_value)
     end
     if data.type == "keybind" then
@@ -601,4 +785,12 @@ end
 
 if type(dmf:get("options_menu_collapsed_widgets")) ~= "table" then
   dmf:set("options_menu_collapsed_widgets", {})
+end
+
+if type(dmf:get("options_menu_mod_scroll_offsets")) ~= "table" then
+  dmf:set("options_menu_mod_scroll_offsets", {})
+end
+
+if type(dmf:get("options_menu_toggle_mods_scroll_offset")) ~= "number" then
+  dmf:set("options_menu_toggle_mods_scroll_offset", 0)
 end
