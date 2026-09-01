@@ -7,7 +7,7 @@
 
 ## 一、现有机制（实证，非猜测）
 
-用户机器实际环境（D:\SteamLibrary，appid 1361210，游戏目录 `Warhammer 40,000 DARKTIDE`）：
+游戏实际环境（Steam 库，appid 1361210，游戏目录 `Warhammer 40,000 DARKTIDE`）：
 
 ```
 游戏更新/启动

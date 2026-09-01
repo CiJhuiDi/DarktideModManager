@@ -7,6 +7,7 @@
 | --- | --- | --- | --- |
 | Darktide Mod Framework（加载器 + mods/base + mods/dmf） | `dmf_payload/mods/` | [Darktide-Mod-Framework/Darktide-Mod-Framework](https://github.com/Darktide-Mod-Framework/Darktide-Mod-Framework) | MIT |
 | dtkit-patch（补丁工具） | `dmf_payload/tools/dtkit-patch.exe` | [ManShanko/dtkit-patch](https://github.com/ManShanko/dtkit-patch) | MIT OR Apache-2.0（本项目按 MIT 条款再分发） |
+| SortableJS（前端拖拽排序） | `static/vendor/sortablejs/Sortable.min.js` | [SortableJS/Sortable](https://github.com/SortableJS/Sortable) | MIT |
 | dt-mod-autopatch（自动装载插件） | `dmf_payload/binaries/plugins/_dt_mod_autopatch.dll` | [ManShanko/dt-mod-autopatch](https://github.com/ManShanko/dt-mod-autopatch) | MIT |
 
 > 注：致谢中提到的 [xsSplater/Darktide_laucher_bypass](https://github.com/xsSplater/Darktide_laucher_bypass)（GPL-3.0）仅作参考致谢，**未随本软件分发**，故本软件不承担 GPL 分发义务。
@@ -16,6 +17,7 @@
 - Darktide Mod Framework：Copyright (c) 2018 Vermintide Mod Framework
 - dtkit-patch：Copyright (c) 2022 manshanko（亦可在 Apache-2.0 条款下使用，见上游仓库 LICENSE-APACHE）
 - dt-mod-autopatch：Copyright (c) 2025 manshanko
+- SortableJS：Copyright (c) 2013-2020 All contributors to Sortable
 
 ## MIT License（适用于上述所有 MIT 组件）
 
