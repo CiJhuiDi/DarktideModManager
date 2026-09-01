@@ -1,7 +1,7 @@
 # DMM 暗潮 MOD 管理器 · 项目交接摘要
 
 > **给新会话的快速上手文档**：读完这个 + RULES.md（工作条例）+ CHANGELOG.md 即可接手。
-> 最后更新：2026-08-25（**v0.5.0 已发布**；含语录内嵌状态栏 / 单实例聚焦修复 / 性能批次 / CDN 本地化）
+> 最后更新：2026-09-02（**v0.5.1 已发布**；内置 DMF 更新至官方 master 8/19 + 汉化合并）
 
 ---
 
@@ -11,7 +11,7 @@
 只做"壳"：管理 mod 启停/顺序/预设/整合包导入，内置 DMF 框架组件，不碰游戏本体。
 
 - **代码位置**：`D:\DeepseekWorkspace\darktide-mod-manager\`
-- **当前版本**：**v0.5.0（2026-08-25 发布，正式版）**；工作区为正式态（发布后如需继续 alpha 测试，用 `tools/set_alpha_state.py` 切换）
+- **当前版本**：**v0.5.1（2026-09-02 发布，正式版）**；工作区为正式态（发布后如需继续 alpha 测试，用 `tools/set_alpha_state.py` 切换）
 - **测试形态**：Alpha 测试版（`release\DarktideModManager_alpha\`，界面只标 Alpha、不带版本号、不打 zip）；
   正式发布时再 bump 版本 + CHANGELOG 定版 + 打 zip（RULES 第 9 条）
 - **GitHub**：https://github.com/CiJhuiDi/DarktideModManager（CiJhuiDi）
@@ -48,7 +48,13 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 >     主题相关测试覆盖 theme.CUSTOM_THEME_DIR（模块级常量）；已统一 stdout reconfigure 防 GBK。
 > ⚠️ test_pack 的 SAMPLE 留空前置 check 无条件失败是已知历史 bug，可忽略。
 
-## 三、当前功能全景（v0.3.1）
+## 三、当前功能全景（v0.5.1）
+
+**内置 DMF 组件（v0.5.1 更新）**：
+- 内置 DMF 更新至官方 master（2026-08-19 提交）：新增颜色选择器（color picker）、选项筛选器、数值输入、文本/文本输入控件、tab 指示器等 UI 组件；选项菜单支持滚动位置记忆、mod 加载顺序字段、mod 版本/作者日志、设置重置事件、鼠标按键映射重构
+- 汉化合并完善：官方 93 keys 全量 + 自译精翻 25 处覆盖 + 补全 8 处 tooltip 翻译（旧版只有 \\n 残缺）
+- 同步游戏内已装 DMF（mods/dmf 42→58，备份 dmf.bak_20260902_0235）；dmf_payload 与游戏内一致
+- 汉化合并工具：`99-临时文件/merge_dmf_loc.py`（workspace，未入仓）
 
 **核心**：一键安装 DMF / 覆盖更新 DMF（force）/ 整合包导入（替换+合并）/ 归档备份找回
 
@@ -218,6 +224,6 @@ RULES.md             # ← 工作条例在 workspace，不在项目里！
 
 ## 十二、待办 / 可能的下一步
 
-- **v0.5.0 已发布（2026-08-25）**：Alpha 批次（语录内嵌状态栏 / 性能优化 / CDN 本地化 / 单实例聚焦修复含白屏三重修复）全部定版发布；Release v0.5.0 Beta + zip（含 LICENSE/THIRD_PARTY）已上传。后续待办：
-- 玩家反馈新版本实机体验（语录/聚焦/性能）
+- **v0.5.1 已发布（2026-09-02）**：内置 DMF 更新至官方 master（8/19）+ 汉化合并；Release v0.5.1 Beta + zip 已上传。后续待办：
+- 玩家反馈新版本实机体验（语录/聚焦/性能/DMF 新 UI 组件）
 - 后续功能方向（用户提过但未做）：无（更新检查 Nexus 已砍掉）
