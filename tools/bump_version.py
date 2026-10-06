@@ -9,11 +9,14 @@ import io, re, sys
 OLD = "0.5.0"  # 当前版本（如升级路径变化需同步改这里）
 NEW = sys.argv[1] if len(sys.argv) > 1 else "0.3.0"
 
+import os
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 FILES = [
-    r'D:\DeepseekWorkspace\darktide-mod-manager\version_info.txt',
-    r'D:\DeepseekWorkspace\darktide-mod-manager\static\index.html',
-    r'D:\DeepseekWorkspace\darktide-mod-manager\README.txt',
-    r'D:\DeepseekWorkspace\darktide-mod-manager\使用指南.txt',
+    os.path.join(ROOT, 'version_info.txt'),
+    os.path.join(ROOT, 'static', 'index.html'),
+    os.path.join(ROOT, 'README.txt'),
+    os.path.join(ROOT, '使用指南.txt'),
 ]
 
 old_tuple = '(' + ', '.join(OLD.split('.')) + ', 0)'

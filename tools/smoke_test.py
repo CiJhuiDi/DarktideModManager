@@ -15,12 +15,23 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_EXE = os.path.join(ROOT, 'release', 'DarktideModManager_alpha', 'DarktideModManager.exe')
 
 
-def find_port_from_log(exe_dir, timeout=30):
-    """读 exe 旁 app.log 的 Uvicorn 端口（取最新一条）"""
+def log_size(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
+def find_port_from_log(exe_dir, timeout=30, offset=0):
+    """读 exe 旁 app.log 的 Uvicorn 端口（**只看 offset 之后新增的部分**）。
+
+    ⚠️ 必须带 offset：app.log 跨次运行追加，取全局"最后一条"会被上一次运行的端口误导
+    （2026-10-06 实际踩到：手动跑的 --port 8319 旧行把冒烟指到死端口 → GET / 连接被拒）。"""
     log = os.path.join(exe_dir, 'app.log')
     for _ in range(timeout * 2):
         try:
             with open(log, 'r', encoding='utf-8', errors='ignore') as f:
+                f.seek(offset)
                 content = f.read()
             matches = re.findall(r'Uvicorn running on http://127\.0\.0\.1:(\d+)', content)
             if matches:
@@ -42,9 +53,10 @@ def main():
     subprocess.run(['taskkill', '/F', '/IM', 'DarktideModManager.exe'], capture_output=True)
     time.sleep(1)
 
+    log_off = log_size(os.path.join(exe_dir, 'app.log'))   # 只看本次启动新增的日志
     proc = subprocess.Popen([exe], cwd=exe_dir)
     try:
-        port = find_port_from_log(exe_dir)
+        port = find_port_from_log(exe_dir, offset=log_off)
         if port is None:
             print('FAIL 未在 app.log 找到服务端口（exe 可能启动失败）')
             sys.exit(1)

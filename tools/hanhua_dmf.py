@@ -5,9 +5,11 @@ DMF localization 汉化脚本 v2
 在 en 行后插入新汉化。整个文件重写，避免正则替换破坏结构。
 """
 import re, shutil, os
+from pathlib import Path
 
 SRC = r'D:\DeepseekWorkspace\dmf_official2\Darktide-Mod-Framework-master\dmf\localization\dmf.lua'
-DST = r'D:\DeepseekWorkspace\darktide-mod-manager\dmf_payload\mods\dmf\localization\dmf.lua'
+ROOT = Path(__file__).resolve().parent.parent
+DST = str(ROOT / 'dmf_payload' / 'mods' / 'dmf' / 'localization' / 'dmf.lua')
 
 ZH = {
     "mods_options": "模组选项",

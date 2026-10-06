@@ -10,7 +10,7 @@ import json, shutil, re
 from datetime import datetime
 from pathlib import Path
 
-BASE = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
+BASE = Path(__file__).resolve().parent.parent
 DEMO = BASE / 'demo'
 GAME = DEMO / 'game'
 MODS = GAME / 'mods'

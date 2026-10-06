@@ -5,11 +5,11 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 import app
 from core import state
 
-ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
 state.GAME_DIR = MOCK
 state.MODS_DIR = MOCK / 'mods'

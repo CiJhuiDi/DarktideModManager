@@ -9,7 +9,7 @@
 import shutil, sys
 from pathlib import Path
 
-BASE = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
+BASE = Path(__file__).resolve().parent.parent
 DEMO = BASE / 'demo'
 
 # 1. 清空 demo（保留目录本身）

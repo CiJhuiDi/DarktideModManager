@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """语录 API 测试：310 条官方语录 / 无空条 / 编号前缀已去除 / API 可访问"""
 import sys
+from pathlib import Path
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 from core.quotes import QUOTES
 import app
 

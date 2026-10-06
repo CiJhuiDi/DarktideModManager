@@ -60,7 +60,7 @@ zip / 7z / rar / tar.gz 全支持，自动识别包结构，兼容网上主流�
 
 ### 三步开玩
 
-1. **解压**下载的压缩包，双击 `DarktideModManager.exe`（自动搜索 Steam 库定位游戏目录）
+1. **解压**下载的压缩包，双击 `DarktideModManager.exe`（自动搜索游戏目录：Steam 库，以及 🔬 Xbox / Game Pass 默认安装位置 `<盘>:\XboxGames`）
 2. 点 **「⚡ 一键安装 DMF」** 装框架（只做一次）
 3. 点 **「📦 导入整合包」** 选你的整合包 → 开玩
 
@@ -75,7 +75,7 @@ A：正常现象（官方机制）。打开管理器点「安装补丁」即可�
 A：Python 打包程序的常见误报，添加信任即可。源码全开源，无恶意行为。
 
 **Q：用了 Mod 会不会被封？**
-A：官方对 Mod 持开放态度，但联机使用第三方 Mod 需遵守游戏规则，后果自负。
+A：官方对 Mod 持开放态度，但使用须遵守 Fatshark 官方 modding 政策（对其它玩家的影响、服务稳定性与性能、绕过进度或付费内容）。政策原文：https://forums.fatsharkgames.com/t/darktide-modding-policy/75407 ，后果自负。
 
 **Q：游戏崩溃，是不是管理器害的？**
 A：不是，管理器只读写 Mod 配置，不碰游戏本体。崩溃多是 Mod 冲突或 Mod 与游戏版本不兼容，禁用逐个 Mod 排查即可。
@@ -84,7 +84,7 @@ A：不是，管理器只读写 Mod 配置，不碰游戏本体。崩溃多是 M
 
 📥 最新版（v0.2.2）：https://github.com/CiJhuiDi/DarktideModManager/releases
 
-- 系统要求：Windows 10/11，Steam 版 / Xbox 版均可
+- 系统要求：Windows 10/11，**Steam 版**完整支持；🔬 Xbox app / PC Game Pass 版为**实验功能**（游戏目录识别 + 商店版日志目录已实现，但仅经单元测试、未在真机验证）
 - 解压后文件夹里自带《使用指南.txt》，新手跟着走就行
 
 ### 结尾

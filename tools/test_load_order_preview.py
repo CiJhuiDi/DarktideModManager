@@ -5,12 +5,12 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 import app
 from core import patch
 from core import state
 
-ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
 state.GAME_DIR = MOCK
 state.MODS_DIR = MOCK / 'mods'
@@ -19,7 +19,7 @@ state.BACKUP_DIR = MOCK / 'backups_lopv_test'
 state.PROFILES_DIR = MOCK / 'profiles_lopv_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
-subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
+subprocess.run([sys.executable, str(ROOT / 'tools' / 'build_mock.py')], check=True)
 MODS = MOCK / 'mods'
 # 当前：TestModA/B/C 启用，DisabledMod 禁用
 lo = MODS / 'mod_load_order.txt'

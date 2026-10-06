@@ -13,6 +13,8 @@ exports/
 config.json
 app.log
 notes.json
+my_mods.json
+my_mods/
 backups/
 profiles/
 release/
@@ -26,6 +28,7 @@ mock_*/
 mock_fresh/
 mock_pack/
 mock_bak/
+demo_keep/
 
 # ---- 编辑器 / 系统 ----
 .vscode/
@@ -38,5 +41,10 @@ Desktop.ini
 # ---- 临时调试脚本/截图 ----
 99-临时文件/
 
-# ---- 内部交接文档（含凭据/本机路径，勿提交）----
+# ---- 内部文档（含凭据/本机路径/设计稿，勿提交；同步进私有仓 darktide-mod-docs）----
 PROJECT_HANDOFF.md
+开发文档.md
+
+# ---- 改动前本地快照备份（含本机路径/旧内容，勿提交）----
+*.bak_*
+*.bak_doc_*

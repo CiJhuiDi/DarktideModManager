@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """mod/整合包导入、归档备份、导出（纯逻辑，无 FastAPI 依赖）。"""
+import json
 import os
 import re
 import shutil
@@ -11,7 +12,9 @@ from pathlib import Path
 
 from core import state
 from core import patch
-from core.load_order import enabled_names, read_load_order, write_load_order
+from core.load_order import enabled_names, read_load_order, write_load_order, backup_load_order
+from core.mods import load_my_mods, is_my_mod, deploy_my_mod, sync_my_mods_to_library
+from core.state import load_config
 from core.mods import invalidate_scan_cache
 
 
@@ -110,7 +113,8 @@ def extract_archive(data: bytes, filename: str, out_dir: Path) -> str | None:
             pass
 
 
-def import_mod_archive(filename: str, data: bytes, force_mod: bool = False) -> dict:
+def import_mod_archive(filename: str, data: bytes, force_mod: bool = False,
+                       overwrite_mine: bool = False) -> dict:
     if not state.MODS_DIR.is_dir():
         return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
     with tempfile.TemporaryDirectory() as td:
@@ -119,10 +123,11 @@ def import_mod_archive(filename: str, data: bytes, force_mod: bool = False) -> d
         err = extract_archive(data, filename, out)
         if err:
             return {"file": filename, "ok": False, "error": err}
-        return import_mod_from_dir(out, filename, force_mod=force_mod)
+        return import_mod_from_dir(out, filename, force_mod=force_mod, overwrite_mine=overwrite_mine)
 
 
-def import_mod_from_dir(out: Path, filename: str, force_mod: bool = False) -> dict:
+def import_mod_from_dir(out: Path, filename: str, force_mod: bool = False,
+                        overwrite_mine: bool = False) -> dict:
     """从已解压目录导入 mod（压缩包解压后 / 用户选择的文件夹共用）。"""
     if not state.MODS_DIR.is_dir():
         return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
@@ -172,6 +177,10 @@ def import_mod_from_dir(out: Path, filename: str, force_mod: bool = False) -> di
 
     target = state.MODS_DIR / real_name
     if target.exists():
+        if is_my_mod(real_name) and not overwrite_mine:
+            # 撞名且对方是玩家自己标记的「我的 mod」：绝不擅自顶掉用户的作品，交前端确认
+            return {"file": filename, "ok": False, "is_my_mod_conflict": True, "name": real_name,
+                    "error": f"「{real_name}」是你标记的「我的 mod」——导入会用别人的同名版本覆盖你自己的，已暂停"}
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         bak = target.with_name(f"{real_name}.bak_{ts}")
         i = 2
@@ -342,13 +351,18 @@ def preview_pack_archive(filename: str, data: bytes) -> dict:
             "cur_count": len(cur_mods),
             "has_load_order": has_load_order,
             "pack_lo_count": pack_lo_count,
+            # 与「我的 mod」同名：导入时会保留玩家的版本、包里那个不装 → 提前告诉玩家
+            "my_conflicts": sorted(set(pack_mods) & set(load_my_mods())),
         }
 
 
-def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> dict:
+def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
+                       keep_enabled: bool = False) -> dict:
     """导入整合包：解压 -> 定位根 -> 备份 -> 合并（replace 先归档旧 mods）-> 返回统计
     mode=replace：旧 mods 整体归档到 backups/pack_backup_<ts>/mods/，mods 始终保持当前包
-    mode=merge：增量叠加（同名覆盖备份）"""
+    mode=merge：增量叠加（同名覆盖备份）
+    keep_enabled=True（仅 replace）：换包时保留当前启用中的 mod——新包缺失的自动从归档补回；
+        同名但版本不同则返回 pending_conflicts 供前端弹窗决策（本函数不擅自覆盖）。"""
     if not state.is_valid_game_dir(state.GAME_DIR):
         return {"file": filename, "ok": False, "error": "游戏目录无效，请先到「关于」页设置"}
     with tempfile.TemporaryDirectory() as td:
@@ -367,14 +381,47 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> di
         archived = []
         state.MODS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # 0. replace 模式：先把现有 mods 整体归档；base/dmf 仅当新包也带同名时才归档
+        # 0. keep_enabled 快照：记录当前“启用中”的 mod（清单 enabled + 磁盘存在），供换包后补回
+        #    （必须在归档前拍，归档后旧目录就没了）
+        keep_snapshot = {}
+        if mode == "replace" and keep_enabled:
+            try:
+                lo_names = enabled_names(read_load_order())
+            except Exception:
+                lo_names = []
+            cur_mods = _scan_mods_dir(state.MODS_DIR)
+            for n in lo_names:
+                if n in cur_mods:
+                    keep_snapshot[n] = cur_mods[n]
+
+        # 0a. 「我的 mod」名单 + 管理器库：玩家自研/私装、整合包里没有的那些。
+        #     ① 不搬进归档（留在原地）② 换完包按换包前的启用状态补回清单 ③ 包内同名不覆盖我的版本
+        #     ④ **换包前先把游戏目录里的当前状态同步进库**（自研 mod 常在游戏目录里改着调试，库里那份可能是旧的）
+        mine = set(load_my_mods())
+        mine_enabled_before = []
+        lib_synced = []
+        if mine:
+            try:
+                mine_enabled_before = [n for n in enabled_names(read_load_order()) if n in mine]
+            except Exception:
+                mine_enabled_before = []
+            try:
+                lib_synced = sync_my_mods_to_library().get("stored") or []
+            except Exception:
+                lib_synced = []
+
+        # 0b. replace 模式：先把现有 mods 整体归档；base/dmf 仅当新包也带同名时才归档
         #    （新包没带则保留旧的，保证框架不缺失）；归档备份统一进 state.BACKUP_DIR
+        mine_kept = []
         if mode == "replace":
             src_mods0 = root / "mods"
             pack_has = {d.name for d in src_mods0.iterdir() if d.is_dir()} if src_mods0.is_dir() else set()
             bak_mods = state.BACKUP_DIR / f"pack_backup_{ts}" / "mods"
             bak_mods.mkdir(parents=True, exist_ok=True)
             for item in sorted(state.MODS_DIR.iterdir()):
+                if item.name in mine:
+                    mine_kept.append(item.name)   # 我的 mod：原地不动，永不进归档（包内同名也由第 1 步跳过，我的优先）
+                    continue
                 if item.is_dir() and item.name in state.SYSTEM_MODS:
                     if item.name not in pack_has:
                         continue  # 新包没有该系统组件，保留旧的
@@ -386,10 +433,15 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> di
 
         # 1. mods/ 增量合并（跳过 mod_load_order.txt，后面单独处理）
         src_mods = root / "mods"
+        mine_pack_conflict = []
         for d in sorted(src_mods.iterdir()) if src_mods.is_dir() else []:
             if not d.is_dir():
                 continue
             if d.name.lower() == "mod_load_order.txt":
+                continue
+            if d.name in mine:
+                # 包里有同名，但这是玩家自己的 mod → 我的优先，绝不覆盖（改名/同名冲突都不要静默换掉用户的作品）
+                mine_pack_conflict.append(d.name)
                 continue
             target = state.MODS_DIR / d.name
             if target.exists():
@@ -410,6 +462,69 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> di
                 b.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(lo_dst), str(b))
             shutil.copy2(lo_src, lo_dst)
+
+        # 2a. 「我的 mod」管理器库：① 换包前已把游戏目录里的当前状态同步进库（见 0a）
+        #     ② 游戏目录里缺失但库里有 → 从库部署回来（被清空 / 误删 / 换了台机器都能恢复）
+        #     ③ 作者清单会整体覆盖玩家清单 → 把换包前**启用中**的「我的 mod」补回清单（文本追加，不打乱作者清单）
+        mine_restored_from_lib, mine_missing = [], []
+        mine_reenabled = []
+        try:
+            present = {d.name for d in state.MODS_DIR.iterdir() if d.is_dir()}
+            for n in load_my_mods():
+                if n in present or not (state.MY_MODS_DIR / n).is_dir():
+                    continue
+                if deploy_my_mod(n).get("ok"):
+                    mine_restored_from_lib.append(n)
+                    present.add(n)
+        except Exception:
+            pass
+        if mine_enabled_before and lo_src.is_file():
+            try:
+                lo_dst = state.MODS_DIR / "mod_load_order.txt"
+                have = {e["name"] for e in read_load_order() if e["kind"] == "mod"}
+                present = {d.name for d in state.MODS_DIR.iterdir() if d.is_dir()}
+                add = []
+                for n in mine_enabled_before:
+                    if n not in present:
+                        mine_missing.append(n)
+                    elif n not in have:
+                        add.append(n)
+                if add:
+                    backup_load_order()
+                    text = lo_dst.read_text(encoding="utf-8-sig", errors="replace") if lo_dst.exists() else ""
+                    if text and not text.endswith("\n"):
+                        text += "\n"
+                    lo_dst.write_text(text + "\n".join(add) + "\n", encoding="utf-8")
+                    mine_reenabled = add
+            except Exception:
+                pass
+
+        # 2b. keep_enabled：换包后把“我启用但新包没有”的 mod 从归档补回（缺失自动补；版本冲突留待决策）
+        pending_conflicts = []
+        restored_mods = []
+        if keep_snapshot:
+            new_mods = _scan_mods_dir(state.MODS_DIR)
+            bak_mods = state.BACKUP_DIR / f"pack_backup_{ts}" / "mods"
+            # 冲突收集：新包有同名且版本不同（快照有版本才比；新包/旧的任一为空版本都不判冲突）
+            for name, old_ver in keep_snapshot.items():
+                if name in new_mods and old_ver and new_mods[name] and old_ver != new_mods[name]:
+                    pending_conflicts.append({"name": name, "old_version": old_ver,
+                                             "new_version": new_mods[name]})
+            # 缺失自动补：归档里找同名目录复制回 mods/
+            for name in keep_snapshot:
+                if name in new_mods:
+                    continue
+                src_dir = bak_mods / name
+                if not src_dir.is_dir():
+                    continue
+                try:
+                    shutil.copytree(src_dir, state.MODS_DIR / name)
+                    restored_mods.append(name)
+                except Exception:
+                    continue  # 单个失败不影响整体
+            if restored_mods:
+                # 只保留文件、不写清单：作者清单全权，补回的 mod 由用户手动决定是否启用
+                invalidate_scan_cache()
 
         # 3. 加载器相关文件：tools/ 散文件、binaries/mod_loader、bundle/*.patch_999
         #    冲突备份统一进 state.BACKUP_DIR（不在游戏目录留 .bak_ 文件）
@@ -466,6 +581,19 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> di
         else:
             if replaced:
                 msg += f"（覆盖 {len(replaced)} 个，旧版已备份）"
+        if restored_mods:
+            msg += f"；已保留你之前启用的 {len(restored_mods)} 个 mod 文件（新包没有，未自动启用——需要请在列表手动开启）"
+        if mine_kept:
+            msg += f"；你的 mod {len(mine_kept)} 个已原地保留"
+            if mine_reenabled:
+                msg += f"（{len(mine_reenabled)} 个保持启用）"
+        if mine_restored_from_lib:
+            msg += f"；已从管理器库恢复 {len(mine_restored_from_lib)} 个（{mine_restored_from_lib[:3]}）"
+        if mine_missing:
+            msg += f"；⚠ 你的 mod {len(mine_missing)} 个游戏目录和管理器库里都没有（{mine_missing[:3]}）"
+        if mine_pack_conflict:
+            msg += (f"；⚠ 包内有同名 {len(mine_pack_conflict)} 个（{mine_pack_conflict[:3]}）——已保留你的版本、"
+                    f"包里那个没装：游戏加载的是你的版本")
         if root_files:
             msg += f"，加载器/工具文件 {len(root_files)} 个"
         if patch.is_game_running():
@@ -482,7 +610,11 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace") -> di
         invalidate_scan_cache()  # mods 目录内容变了，强制下次扫描重建元数据缓存
         return {"file": filename, "ok": True, "message": msg,
                 "mods": added, "replaced": replaced, "archived": archived,
-                "root_files": root_files, "load_order": lo_src.is_file(), "mode": mode}
+                "root_files": root_files, "load_order": lo_src.is_file(), "mode": mode,
+                "restored": restored_mods, "pending_conflicts": pending_conflicts, "ts": ts,
+                "mine_kept": mine_kept, "mine_reenabled": mine_reenabled,
+                "mine_missing": mine_missing, "mine_pack_conflict": mine_pack_conflict,
+                "mine_lib_synced": lib_synced, "mine_restored_from_lib": mine_restored_from_lib}
 
 
 # ---------------------------------------------------------------- 归档备份
@@ -496,59 +628,242 @@ def _fmt_ts(ts: str) -> str:
 
 
 # 备份保留策略：单类最多保留份数 / backups 总大小上限（字节）
+# 默认值只是缺省——实际生效值可在「备份」页设置里改（存 config.json），见 backup_policy()
 BACKUP_MAX_PER_TYPE = 10
 BACKUP_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024  # 5GB
+BACKUP_POLICY_KEY = ("backup_max_per_type", "backup_max_total_mb")
+
+# 备份体积缓存：{bid: (目录 mtime, size)}——一份 353 mod 的备份要遍历上万文件，别每次刷新都重算
+_BACKUP_SIZE_CACHE: dict = {}
 
 
-def prune_backups():
-    """备份清理：
-    1. 单类上限：pack_backup_/dmf_backup_ 各保留最近 BACKUP_MAX_PER_TYPE 份；
-    2. 总量上限：backups 总大小超 BACKUP_MAX_TOTAL_BYTES 时从最旧开始删，直到达标。
-    返回删除的条目列表。"""
+def dir_size_bytes(p: Path) -> int:
+    """目录/文件总字节数（失败返回 0）"""
+    try:
+        if p.is_file():
+            return p.stat().st_size
+        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+    except Exception:
+        return 0
+
+
+def cached_backup_size(p: Path) -> int:
+    """带缓存的备具体积（目录 mtime 变了就重算）"""
+    try:
+        key = p.name
+        mt = p.stat().st_mtime
+        hit = _BACKUP_SIZE_CACHE.get(key)
+        if hit and hit[0] == mt:
+            return hit[1]
+        size = dir_size_bytes(p)
+        _BACKUP_SIZE_CACHE[key] = (mt, size)
+        return size
+    except Exception:
+        return 0
+
+
+def backup_policy() -> dict:
+    """当前生效的保留策略（读完即生效，不需重启）"""
+    cfg = load_config()
+    per = cfg.get("backup_max_per_type")
+    mb = cfg.get("backup_max_total_mb")
+    try:
+        per = int(per) if per not in (None, "") else BACKUP_MAX_PER_TYPE
+    except Exception:
+        per = BACKUP_MAX_PER_TYPE
+    try:
+        mb = int(mb) if mb not in (None, "") else BACKUP_MAX_TOTAL_BYTES // (1024 * 1024)
+    except Exception:
+        mb = BACKUP_MAX_TOTAL_BYTES // (1024 * 1024)
+    return {"max_per_type": max(1, min(200, per)), "max_total_mb": max(64, min(102400, mb))}
+
+
+def save_backup_policy(max_per_type=None, max_total_mb=None) -> dict:
+    """写回策略到 config.json（缺省值会随时生效）"""
+    cfg = load_config()
+    if max_per_type is not None:
+        cfg["backup_max_per_type"] = max(1, min(200, int(max_per_type)))
+    if max_total_mb is not None:
+        cfg["backup_max_total_mb"] = max(64, min(102400, int(max_total_mb)))
+    try:
+        state.CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        return {"ok": False, "error": f"写入配置失败: {e}"}
+    return {"ok": True, **backup_policy()}
+
+
+def backup_entries() -> list:
+    """backups 目录下所有条目：[(name, path, size_bytes)]（旧在前，含清单散文件）"""
     if not state.BACKUP_DIR.is_dir():
         return []
-    removed = []
-
-    # 1. 单类数量上限（pack / dmf 目录类）
-    for prefix in ("pack_backup_", "dmf_backup_"):
-        dirs = sorted((d for d in state.BACKUP_DIR.iterdir() if d.is_dir() and d.name.startswith(prefix)),
-                      key=lambda d: d.name)
-        for old in dirs[:-BACKUP_MAX_PER_TYPE]:
-            try:
-                shutil.rmtree(old, ignore_errors=True)
-                removed.append(old.name)
-            except Exception:
-                pass
-
-    # 2. 总量上限（含清单散文件）
-    def _dir_size(p: Path) -> int:
-        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
-
-    # 收集所有备份条目（目录 + 清单散文件），按名称排序（旧在前）
-    entries = []
+    out = []
     for d in state.BACKUP_DIR.iterdir():
         if d.is_dir() and (d.name.startswith("pack_backup_") or d.name.startswith("dmf_backup_")):
-            entries.append((d.name, _dir_size(d)))
+            out.append((d.name, d, cached_backup_size(d)))
         elif d.is_file() and d.name.startswith("mod_load_order.") and d.name.endswith(".bak"):
-            entries.append((d.name, d.stat().st_size))
-    entries.sort(key=lambda x: x[0])
+            out.append((d.name, d, dir_size_bytes(d)))
+    out.sort(key=lambda x: x[0])
+    return out
 
-    total = sum(sz for _, sz in entries)
-    for name, sz in entries:
-        if total <= BACKUP_MAX_TOTAL_BYTES:
+
+def prune_plan(max_per_type=None, max_total_mb=None) -> dict:
+    """按策略算出"将会被删掉哪些"（不落盘）——给前端删除前确认用"""
+    pol = backup_policy()
+    per = pol["max_per_type"] if max_per_type is None else max(1, int(max_per_type))
+    mb = pol["max_total_mb"] if max_total_mb is None else max(1, int(max_total_mb))
+    cap = mb * 1024 * 1024
+    entries = backup_entries()
+    doomed = {}
+    # 1. 单类数量上限
+    for prefix in ("pack_backup_", "dmf_backup_"):
+        same = [e for e in entries if e[0].startswith(prefix)]
+        for name, _p, sz in same[:-per]:
+            doomed[name] = sz
+    # 2. 总量上限（在已删掉的基础上继续按最旧删）
+    total = sum(sz for n, _p, sz in entries if n not in doomed)
+    for name, _p, sz in entries:
+        if total <= cap:
             break
+        if name in doomed:
+            continue
+        doomed[name] = sz
+        total -= sz
+    total_all = sum(sz for _n, _p, sz in entries)
+    return {
+        "would_remove": [{"id": n, "size_bytes": doomed[n]} for n, _p, _s in entries if n in doomed],
+        "total_bytes": total_all,
+        "after_bytes": total_all - sum(doomed.values()),
+        "max_per_type": per, "max_total_mb": mb,
+    }
+
+
+def prune_backups(dry_run: bool = False):
+    """备份清理（策略可配，见 backup_policy）：
+    1. 单类上限：pack_backup_/dmf_backup_ 各保留最近 max_per_type 份；
+    2. 总量上限：backups 总大小超 max_total_mb 时从最旧开始删，直到达标。
+    dry_run=True 时只算不删（返回将删条目）。返回删除（或将删）的条目名列表。"""
+    plan = prune_plan()
+    names = [x["id"] for x in plan["would_remove"]]
+    if dry_run:
+        return names
+    removed = []
+    for name in names:
         target = state.BACKUP_DIR / name
         try:
-            if target.is_dir():
-                shutil.rmtree(target, ignore_errors=True)
+            if target.is_dir() or (state.is_junction(target) if hasattr(state, "is_junction") else False):
+                state.safe_rmtree(target, ignore_errors=True)
             else:
                 target.unlink(missing_ok=True)
-            total -= sz
             removed.append(name)
+            _BACKUP_SIZE_CACHE.pop(name, None)
         except Exception:
             pass
-
     return removed
+
+
+def backup_contents(bid: str) -> dict:
+    """看某个备份里有什么（详情弹窗用；只读）。
+
+    pack 备份：逐 mod 列 {name, size_kb, in_game(游戏目录里有没有), enabled(备份清单里开着没)}
+    dmf 备份：列文件；清单备份：返回文本内容。"""
+    p = state.BACKUP_DIR / Path(bid).name
+    if not p.exists():
+        return {"ok": False, "error": "备份不存在"}
+    if p.is_file():
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except Exception as e:
+            return {"ok": False, "error": f"读取失败: {e}"}
+        return {"ok": True, "type": "load_order", "id": p.name,
+                "items": [], "text": text[:20000], "size_bytes": p.stat().st_size}
+    if p.name.startswith("dmf_backup_"):
+        items = [{"name": str(f.relative_to(p)), "size_kb": max(1, -(-f.stat().st_size // 1024))}
+                 for f in sorted(p.rglob("*")) if f.is_file()]
+        return {"ok": True, "type": "dmf", "id": p.name, "items": items,
+                "size_bytes": dir_size_bytes(p)}
+    mods_dir = p / "mods"
+    if not mods_dir.is_dir():
+        return {"ok": False, "error": "这个备份里没有 mods 目录"}
+    order = set()
+    lo = mods_dir / "mod_load_order.txt"
+    if lo.is_file():
+        try:
+            order = {ln.strip() for ln in lo.read_text(encoding="utf-8", errors="ignore").splitlines()
+                     if ln.strip() and not ln.strip().startswith("--")}
+        except Exception:
+            order = set()
+    items = []
+    for d in sorted(mods_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        items.append({
+            "name": d.name,
+            "size_kb": max(1, -(-dir_size_bytes(d) // 1024)),
+            "enabled": d.name in order,
+            "in_game": (state.MODS_DIR / d.name).is_dir(),
+        })
+    return {"ok": True, "type": "pack", "id": p.name, "items": items,
+            "size_bytes": cached_backup_size(p),
+            "enabled_count": sum(1 for x in items if x["enabled"])}
+
+
+def restore_selected_from_backup(bid: str, names, enable: bool = False) -> dict:
+    """**从备份里挑单个/几个 mod 恢复**（整包恢复之外的另一种粒度）。
+
+    · 备份里没有的名字 → 记 missing
+    · 游戏目录里已有同名 → 先移进 `backups/partial_<ts>/mods/` 再覆盖（绝不直接删用户文件）
+    · enable=True → 把恢复的名字补进启停清单末尾（找回丢失的 mod 通常就要它启用）
+    """
+    p = state.BACKUP_DIR / Path(bid).name
+    src_mods = p / "mods"
+    if not src_mods.is_dir():
+        return {"ok": False, "error": "备份不存在或不是整合包归档"}
+    want = [str(n).strip() for n in (names or []) if str(n).strip()]
+    if not want:
+        return {"ok": False, "error": "没有选择要恢复的 mod"}
+    if not state.MODS_DIR.is_dir():
+        return {"ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    replaced_bak = state.BACKUP_DIR / f"partial_{ts}" / "mods"
+    restored, replaced, missing = [], [], []
+    for n in want:
+        s = src_mods / n
+        if not s.is_dir():
+            missing.append(n)
+            continue
+        d = state.MODS_DIR / n
+        try:
+            if d.exists():
+                replaced_bak.mkdir(parents=True, exist_ok=True)
+                dst = replaced_bak / n
+                if dst.exists() or state.is_junction(dst):
+                    state.safe_rmtree(dst, ignore_errors=True)
+                shutil.move(str(d), str(dst))
+                replaced.append(n)
+            shutil.copytree(s, d)
+            restored.append(n)
+        except Exception as e:
+            missing.append(f"{n}({e})")
+    enabled = []
+    if enable and restored:
+        try:
+            entries = read_load_order()
+            have = {e["name"] for e in entries if e["kind"] == "mod"}
+            add = [n for n in restored if n not in have]
+            if add:
+                backup_load_order()
+                text = state.LOAD_ORDER_FILE.read_text(encoding="utf-8-sig", errors="replace") \
+                    if state.LOAD_ORDER_FILE.exists() else ""
+                if text and not text.endswith("\n"):
+                    text += "\n"
+                state.LOAD_ORDER_FILE.write_text(text + "\n".join(add) + "\n", encoding="utf-8")
+                enabled = add
+        except Exception:
+            pass
+    return {"ok": bool(restored), "restored": restored, "replaced": replaced,
+            "missing": missing, "enabled": enabled, "partial_backup": replaced_bak.parent.name if replaced else "",
+            "error": "" if restored else "选中的 mod 在备份里都没找到"}
 
 
 # ---------------------------------------------------------------- 导出

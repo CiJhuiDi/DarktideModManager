@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import logging.config
 import random
 import io
 import os
@@ -25,6 +26,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from core import state
+from core import crash
 from core.state import (GAME_FOLDER_NAME, APP_ID, SYSTEM_MODS,
                    load_config, detect_game_dir, find_game_dir, is_valid_game_dir,
                    apply_game_dir)
@@ -35,10 +37,12 @@ from core.patch import (patch_state, is_game_running, is_game_running_real,
                   set_auto_patch_disabled, auto_patch_if_needed,
                   guard_game_running, _run_patch, CREATE_NO_WINDOW)
 from core.mods import (load_notes, save_notes, scan_mods, invalidate_scan_cache,
-                  read_mod_description)
-from core.imports import (import_mod_archive, import_mod_from_dir,
-                     preview_pack_archive, import_pack_archive, _scan_mods_dir,
-                     diff_mods, _fmt_ts, prune_backups, export_pack)
+                  read_mod_description, load_my_mods, set_my_mod,
+                  store_my_mod, deploy_my_mod, my_mods_library, sync_my_mods_to_library)
+from core.imports import (import_mod_archive, import_mod_from_dir, preview_pack_archive, import_pack_archive,
+                     _scan_mods_dir, diff_mods, _fmt_ts, prune_backups, export_pack,
+                     backup_policy, save_backup_policy, prune_plan, backup_entries,
+                     cached_backup_size, dir_size_bytes, backup_contents, restore_selected_from_backup)
 from core.dmf import dmf_state, install_dmf
 from core.crash import router as crash_router
 from core.theme import router as theme_router, custom_theme_state
@@ -340,7 +344,10 @@ def api_patch_uninstall():
 # ---------------------------------------------------------------- mod 导入
 
 @app.post("/api/mods/import")
-async def api_import_mods(files: list[UploadFile] = File(...), force_mod: bool = Form(False)):
+async def api_import_mods(files: list[UploadFile] = File(...), force_mod: bool = Form(False),
+                          overwrite_mine: bool = Form(False)):
+    """导入单个 mod。overwrite_mine=1 表示用户已确认「用别人的同名版本覆盖我的 mod」。
+    未确认时若撞上「我的 mod」→ 返回 is_my_mod_conflict，由前端弹窗让用户决定。"""
     if not is_valid_game_dir(state.GAME_DIR):
         return {"ok": False, "results": [], "error": "未设置正确的游戏目录"}
     g = guard_game_running("导入 mod")
@@ -353,7 +360,8 @@ async def api_import_mods(files: list[UploadFile] = File(...), force_mod: bool =
         except Exception as e:
             results.append({"file": f.filename, "ok": False, "error": f"读取失败: {e}"})
             continue
-        results.append(import_mod_archive(f.filename or "mod.zip", data, force_mod=force_mod))
+        results.append(import_mod_archive(f.filename or "mod.zip", data, force_mod=force_mod,
+                                          overwrite_mine=overwrite_mine))
     return {"ok": True, "results": results}
 
 
@@ -408,6 +416,7 @@ class PackPreviewBody(BaseModel):
     data_b64: str = ""  # 压缩包 base64（前端读取后传入）
 
 
+@app.post("/api/pack/preview")
 def api_pack_preview(body: PackPreviewBody):
     """导入整合包前的差异预览（只读，不写文件）"""
     g = guard_game_running("预览整合包")
@@ -425,10 +434,17 @@ def api_pack_preview(body: PackPreviewBody):
 
 @app.post("/api/pack/import")
 async def api_pack_import(files: list[UploadFile] = File(...),
-                          mode: str = Form("replace")):
-    """整合包导入：mode=replace（默认，整体替换）| merge（叠加）"""
+                          mode: str = Form("replace"),
+                          keep_enabled: str = Form("1")):
+    """整合包导入：mode=replace（默认，整体替换）| merge（叠加）
+    keep_enabled=1（默认）：replace 时保留当前启用中的 mod（缺失自动补回，版本冲突返回待决策）"""
     if mode not in ("replace", "merge"):
         mode = "replace"
+    # 兼容：HTTP 走 Form 注入；test_guard 等直接函数调用时 keep_enabled 可能是 Form 对象/缺失
+    ke = keep_enabled
+    if not isinstance(ke, str):
+        ke = "1"
+    keep = ke.strip().lower() not in ("0", "false", "off", "")
     if not is_valid_game_dir(state.GAME_DIR):
         return {"ok": False, "results": [], "error": "未设置正确的游戏目录"}
     g = guard_game_running("导入整合包")
@@ -441,8 +457,56 @@ async def api_pack_import(files: list[UploadFile] = File(...),
         except Exception as e:
             results.append({"file": f.filename, "ok": False, "error": f"读取失败: {e}"})
             continue
-        results.append(import_pack_archive(f.filename or "pack.zip", data, mode))
+        results.append(import_pack_archive(f.filename or "pack.zip", data, mode, keep_enabled=keep))
     return {"ok": True, "results": results}
+
+
+class KeepConflictBody(BaseModel):
+    ts: str          # 导入时的 pack_backup_<ts> 归档标识
+    names: list[str] # 用户选择“补回我的版本”的 mod 名列表
+
+
+@app.post("/api/pack/keep_conflicts")
+def api_pack_keep_conflicts(body: KeepConflictBody):
+    """换包保留的版本冲突决策：把用户选定 mod 从归档覆盖回游戏 mods/（并确保在启用清单）。
+    用于导入弹窗选「补回我的版本」后执行；选「用新包」的什么都不做。"""
+    ts = body.ts.strip()
+    names = [n for n in (body.names or []) if n]
+    if not ts or not names:
+        return {"ok": False, "error": "缺少归档标识或 mod 列表"}
+    bak_mods = state.BACKUP_DIR / f"pack_backup_{ts}" / "mods"
+    if not bak_mods.is_dir():
+        return {"ok": False, "error": f"找不到归档 backups/pack_backup_{ts}/，可能已被清理，无法补回"}
+    done, failed = [], []
+    for name in names:
+        src = bak_mods / name
+        dst = state.MODS_DIR / name
+        if not src.is_dir():
+            failed.append({"name": name, "error": "归档里没有该 mod"})
+            continue
+        try:
+            if dst.exists() or state.is_junction(dst):
+                state.safe_rmtree(dst)      # 联接只摘链接，绝不递归进源码（实测 rmtree 会拒绝 junction）
+            shutil.copytree(src, dst)
+            done.append(name)
+        except Exception as e:
+            failed.append({"name": name, "error": str(e)})
+    if done:
+        try:
+            entries = read_load_order()
+            names_now = {e["name"] for e in entries if e["kind"] == "mod"}
+            changed = False
+            for name in done:
+                if name not in names_now:
+                    entries.append({"kind": "mod", "raw": name, "name": name})
+                    names_now.add(name)
+                    changed = True
+            if changed:
+                write_load_order(entries)
+        except Exception:
+            pass
+        invalidate_scan_cache()
+    return {"ok": True, "restored": done, "failed": failed}
 
 
 # ---------------------------------------------------------------- 归档备份管理
@@ -475,9 +539,13 @@ def api_backup_preview(bid: str):
 # 备份保留策略：单类最多保留份数 / backups 总大小上限（字节）
 @app.get("/api/backups")
 def api_backups():
-    """列出归档备份：整合包归档 pack_backup_*、DMF 组件备份 dmf_backup_*、清单备份 mod_load_order.*.bak"""
+    """列出归档备份：整合包归档 pack_backup_*、DMF 组件备份 dmf_backup_*、挑单恢复的原地备份 partial_*、清单备份 mod_load_order.*.bak
+
+    2026-10-06 备份页现代化：每条带 `size_bytes`，并返回 `total_bytes` / 当前保留策略 / 「将自动清理哪些」计划
+    —— 让界面能显示"已用 X / 上限 Y"，而不是让策略静默删掉唯一的回滚点。"""
+    pol = backup_policy()
     if not state.BACKUP_DIR.is_dir():
-        return {"backups": []}
+        return {"backups": [], "total_bytes": 0, "policy": pol, "plan": []}
     backups = []
     for d in sorted(state.BACKUP_DIR.iterdir(), reverse=True):
         if not d.is_dir():
@@ -502,6 +570,7 @@ def api_backups():
                     "mods": mods, "count": len(mods),
                     "enabled_count": enabled_count,
                     "has_load_order": lo_f.is_file(),
+                    "size_bytes": cached_backup_size(d),
                 })
         elif d.name.startswith("dmf_backup_"):
             files = [x for x in d.rglob("*") if x.is_file()]
@@ -509,6 +578,23 @@ def api_backups():
                 "id": d.name, "type": "dmf",
                 "created": _fmt_ts(d.name[len("dmf_backup_"):]),
                 "count": len(files),
+                "size_bytes": cached_backup_size(d),
+            })
+        elif d.name.startswith("partial_"):
+            md = d / "mods"
+            backups.append({
+                "id": d.name, "type": "partial",
+                "created": _fmt_ts(d.name[len("partial_"):]),
+                "count": len([x for x in md.iterdir()]) if md.is_dir() else 0,
+                "size_bytes": cached_backup_size(d),
+            })
+        elif d.name.startswith("game_dir_cleanup_"):
+            md = d / "mods"
+            backups.append({
+                "id": d.name, "type": "game_cleanup",
+                "created": _fmt_ts(d.name[len("game_dir_cleanup_"):]),
+                "count": len([x for x in md.iterdir()]) if md.is_dir() else 0,
+                "size_bytes": cached_backup_size(d),
             })
     # 清单备份（散文件 mod_load_order.<ts>.bak）
     for f in sorted(state.BACKUP_DIR.glob("mod_load_order.*.bak"), reverse=True):
@@ -517,8 +603,66 @@ def api_backups():
             "id": f.name, "type": "load_order",
             "created": _fmt_ts(ts),
             "count": 1,
+            "size_bytes": f.stat().st_size,
         })
-    return {"backups": backups}
+    return {"backups": backups,
+            "total_bytes": sum(b.get("size_bytes") or 0 for b in backups),
+            "policy": pol, "plan": prune_plan()["would_remove"]}
+
+
+@app.get("/api/backups/policy")
+def api_backup_policy():
+    """当前保留策略 + 占用 + 将自动清理哪些（备份页"占用可见可控"用）"""
+    return {"ok": True, "policy": backup_policy(), "plan": prune_plan(),
+            "total_bytes": sum(sz for _n, _p, sz in backup_entries())}
+
+
+class BackupPolicyBody(BaseModel):
+    max_per_type: int | None = None
+    max_total_mb: int | None = None
+
+
+@app.post("/api/backups/policy")
+def api_backup_policy_save(body: BackupPolicyBody):
+    """改保留策略（写 config.json，立即生效；不动任何备份内容）"""
+    r = save_backup_policy(body.max_per_type, body.max_total_mb)
+    if not r.get("ok"):
+        return r
+    return {"ok": True, "policy": backup_policy(), "plan": prune_plan()}
+
+
+@app.post("/api/backups/prune")
+def api_backup_prune(dry_run: bool = False):
+    """按当前策略清理（dry_run=true 只列出将删的，不删）——删除前先让玩家确认"""
+    names = prune_backups(dry_run=True) if dry_run else prune_backups()
+    items = [{"id": n, "size_bytes": dir_size_bytes(state.BACKUP_DIR / n)} for n in names]
+    return {"ok": True, "dry_run": bool(dry_run), "removed": items,
+            "freed_bytes": sum(x["size_bytes"] for x in items),
+            "total_bytes": sum(sz for _n, _p, sz in backup_entries())}
+
+
+@app.get("/api/backups/{bid}/contents")
+def api_backup_contents(bid: str):
+    """看备份里有什么（详情：逐 mod 列大小 / 是否已在游戏目录 / 备份里启用没）"""
+    return backup_contents(bid)
+
+
+class RestoreSelectedBody(BaseModel):
+    names: list[str] = []
+    enable: bool = False
+
+
+@app.post("/api/backups/{bid}/restore_selected")
+def api_backup_restore_selected(bid: str, body: RestoreSelectedBody):
+    """**从备份里挑单个/几个 mod 恢复**（可顺带启用）；整包恢复仍走 /restore"""
+    if not is_valid_game_dir(state.GAME_DIR):
+        return {"ok": False, "error": "游戏目录无效，请先在「关于」页设置"}
+    if is_game_running():
+        return {"ok": False, "error": "游戏正在运行中，请先关闭游戏再恢复"}
+    r = restore_selected_from_backup(bid, body.names, enable=body.enable)
+    if r.get("ok"):
+        invalidate_scan_cache()
+    return r
 
 
 @app.post("/api/backups/{bid}/restore")
@@ -600,10 +744,11 @@ def api_backup_restore(bid: str):
 def api_backup_delete(bid: str):
     """删除归档备份（目录或清单散文件）"""
     d = state.BACKUP_DIR / bid
-    if d.is_dir():
-        if not (bid.startswith("pack_backup_") or bid.startswith("dmf_backup_")):
+    ALLOWED = ("pack_backup_", "dmf_backup_", "partial_", "root_cleanup_", "game_dir_cleanup_")
+    if d.is_dir() or state.is_junction(d):
+        if not bid.startswith(ALLOWED):
             return {"ok": False, "error": "备份不存在"}
-        shutil.rmtree(d, ignore_errors=True)
+        state.safe_rmtree(d, ignore_errors=True)     # 联接只摘链接，不递归进目标
     elif d.is_file() and bid.startswith("mod_load_order.") and bid.endswith(".bak"):
         d.unlink(missing_ok=True)
     else:
@@ -633,23 +778,36 @@ def api_set_game_dir(body: GameDirBody):
         return g
     p = Path(body.path.strip().strip('\"'))
     if not p.is_dir():
+        logging.getLogger().warning(f"手动设置游戏目录失败（目录不存在）| 输入={body.path!r}")
         return {"ok": False, "error": "目录不存在"}
     if not is_valid_game_dir(p):
+        try:
+            _names = sorted(d.name for d in p.iterdir() if d.is_dir())[:20]
+        except Exception as e:
+            _names = [f"<枚举失败 {e!r}>"]
+        logging.getLogger().warning(
+            f"手动设置游戏目录失败（缺 mods/bundle 目录）| 输入={p} | 该层子目录={_names}")
         return {"ok": False, "error": "该目录不是暗潮游戏目录（需包含 mods 或 bundle 文件夹）"}
     if not apply_game_dir(p):
+        logging.getLogger().warning(f"手动设置游戏目录失败（写配置失败）| 输入={p}")
         return {"ok": False, "error": "写入配置失败"}
+    logging.getLogger().info(f"游戏目录已手动设置 | {p} | 自动识别诊断：{state.game_dir_diagnosis()}")
     return {"ok": True, "path": str(p), "restart_required": False}
 
 
 @app.post("/api/game_dir/detect")
 def api_detect_game_dir():
-    """自动扫描 Steam 库识别游戏目录并保存（手动识别按钮，立即生效）"""
+    """自动扫描 Steam 库 + Xbox/Game Pass 常见安装位置识别游戏目录并保存（手动识别按钮，立即生效）
+    ⚠️ Xbox / Game Pass 分支为实验功能：仅单测覆盖，未在真机 Game Pass 环境实测。"""
     g = guard_game_running("切换游戏目录")
     if g:
         return g
     p = detect_game_dir()
     if p is None or not is_valid_game_dir(p):
-        return {"ok": False, "error": "未在 Steam 库中找到暗潮游戏目录，请改用「选择文件夹」手动指定"}
+        # 识别失败留痕（Xbox / Game Pass 用户点「自动识别」失败时，app.log 里能看到扫了哪些路径）
+        logging.getLogger().warning(f"自动识别游戏目录失败 | {state.game_dir_diagnosis()}")
+        return {"ok": False, "error": "未在 Steam 库或 Xbox/Game Pass 默认安装位置找到暗潮游戏目录，请改用「选择文件夹」手动指定"}
+    logging.getLogger().info(f"自动识别游戏目录命中 | {p} | {state.game_dir_diagnosis()}")
     if not apply_game_dir(p):
         return {"ok": False, "error": "写入配置失败"}
     return {"ok": True, "path": str(p), "restart_required": False}
@@ -657,7 +815,7 @@ def api_detect_game_dir():
 
 @app.get("/api/mods")
 def api_mods():
-    return {"mods": scan_mods()}
+    return {"mods": scan_mods(), "my_mods": load_my_mods(), "my_lib": my_mods_library()}
 
 
 @app.get("/api/mods/{name}/detail")
@@ -901,6 +1059,74 @@ def api_set_note(name: str, body: NoteBody):
     return {"ok": True, "note": notes.get(safe, "")}
 
 
+class MyModBody(BaseModel):
+    name: str = ""
+    mine: bool = True
+
+
+@app.post("/api/mods/mine")
+def api_set_my_mod(body: MyModBody):
+    """标记/取消「我的 mod」——自己设计/私装、整合包里没有的那些。
+
+    标记时**顺手把游戏目录里的当前版本收进管理器库**（`my_mods/`），于是：
+    ① 库里有安全副本（换包 / 清空 mods / 误删都不怕）② 换包时原地保留 + 按换包前状态保持启用
+    ③ 包内有同名保留你的版本 ④ 游戏目录缺失时可从库一键部署回来。名单存 exe 旁 my_mods.json。"""
+    g = guard_game_running("修改我的 mod 标记")
+    if g:
+        return g
+    names = set_my_mod(body.name, body.mine)
+    stored = None
+    if body.mine:
+        r = store_my_mod(body.name)
+        stored = r.get("ok") and r.get("size_kb")
+    invalidate_scan_cache()  # 列表要显示「我的」徽标，刷新元数据缓存
+    return {"ok": True, "name": Path(body.name).name, "mine": bool(body.mine),
+            "my_mods": names, "stored_kb": stored, "library": my_mods_library()}
+
+
+class DeployMineBody(BaseModel):
+    name: str = ""          # 空 = 把库里所有「我的 mod」都部署回游戏目录
+
+
+@app.get("/api/mods/mine/library")
+def api_my_mods_library():
+    """管理器库总览：每个「我的 mod」是否在库里 / 是否已部署 / 是否启用 / 体积"""
+    return {"ok": True, "dir": str(state.MY_MODS_DIR), "items": my_mods_library()}
+
+
+@app.post("/api/mods/mine/sync")
+def api_sync_my_mods(body: DeployMineBody | None = None):
+    """把游戏目录里「我的 mod」的当前版本同步进管理器库（自研 mod 常在游戏目录里改着调试）。
+
+    `name` 留空 = 全部；只读游戏目录、只写库 → 不设游戏运行守卫（游戏中也能同步）。"""
+    only = (body.name if body else "") or ""
+    if only:
+        r = store_my_mod(only)
+        stored, skipped = ([only], []) if r.get("ok") else ([], [only])
+    else:
+        r = sync_my_mods_to_library()
+        stored, skipped = r.get("stored") or [], r.get("skipped") or []
+    invalidate_scan_cache()
+    return {"ok": True, "stored": stored, "skipped": skipped, "library": my_mods_library()}
+
+
+@app.post("/api/mods/mine/deploy")
+def api_deploy_my_mod(body: DeployMineBody):
+    """从管理器库部署回游戏 mods/（游戏目录被清空、误删、换机器后恢复用）"""
+    g = guard_game_running("从管理器库部署 mod")
+    if g:
+        return g
+    want = [body.name] if body.name else [e["name"] for e in my_mods_library() if e["in_lib"]]
+    if not want:
+        return {"ok": False, "error": "管理器库里没有可部署的 mod"}
+    done, failed = [], []
+    for n in want:
+        r = deploy_my_mod(n)
+        (done if r.get("ok") else failed).append(n if r.get("ok") else {"name": n, "error": r.get("error")})
+    invalidate_scan_cache()
+    return {"ok": bool(done), "deployed": done, "failed": failed, "library": my_mods_library()}
+
+
 @app.post("/api/mods/{name}/remove_from_load_order")
 def api_remove_from_load_order(name: str):
     """从启停清单移除该 mod（含禁用注释行）——清理磁盘上已不存在的残留条目"""
@@ -1128,6 +1354,10 @@ if __name__ == "__main__":
                         help="监听端口 (默认自动选择空闲端口)")
     parser.add_argument("--browser", action="store_true",
                         help="用浏览器打开而不是独立窗口 (默认独立窗口)")
+    parser.add_argument("--e2e", action="store_true",
+                        help="E2E 测试模式：开 WebView2 远程调试端口 + 注册 /api/test/* 钩子（不动正式行为）")
+    parser.add_argument("--cdp-port", type=int, default=9222,
+                        help="E2E 模式下 WebView2 的 CDP 调试端口 (默认 9222)")
     args = parser.parse_args()
 
     state.PROFILES_DIR.mkdir(exist_ok=True)
@@ -1149,9 +1379,18 @@ if __name__ == "__main__":
         }},
         "root": {"handlers": ["file"], "level": "INFO"},
     }
+    # ⚠️ 必须在这里就装上 handler：文件 handler 原先只由 uvicorn.run(log_config=…) 安装，
+    # 而它在 serve() 线程启动时才生效——启动阶段（单实例、环境诊断、端口）的日志
+    # 那时还没有 handler，INFO 直接被丢弃（app.log 第一条一直是 uvicorn 自己的输出）。
+    try:
+        logging.config.dictConfig(LOG_CONFIG)
+    except Exception as e:  # 目录不可写等：退化为默认日志，不因日志配置打断启动
+        logging.basicConfig(level=logging.INFO)
+        logging.getLogger().warning(f"app.log 初始化失败（不影响使用）: {e}")
 
     # 单实例保护：命名互斥体（已有实例时聚焦其窗口并静默退出，不弹提示框）
-    if not args.browser and not acquire_single_instance():
+    # E2E 模式跳过：测试要能反复起停，且驱动脚本自己会先清进程
+    if not args.browser and not args.e2e and not acquire_single_instance():
         focused = focus_existing_window()
         logging.getLogger().info("检测到已有实例，聚焦现有窗口后退出" + ("（已聚焦）" if focused else "（未找到窗口）"))
         sys.exit(0)
@@ -1159,9 +1398,40 @@ if __name__ == "__main__":
     # 端口：显式指定则用指定值，否则动态分配空闲端口
     port = args.port if args.port else find_free_port()
 
+    # E2E：给 WebView2 开一个 CDP 远程调试端口，让 tools/e2e_ui.py 能驱动**真实界面**
+    # （实测可行：WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 里的 --remote-debugging-port 会被 WebView2 采纳）
+    if args.e2e:
+        _base_args = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "").strip()
+        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
+            _base_args + f" --remote-debugging-port={args.cdp_port}").strip()
+        try:
+            from core import e2e as _e2e
+            _e2e.INFO.update({"app": port, "cdp": args.cdp_port})
+            app.include_router(_e2e.router)
+            logging.getLogger().warning(
+                f"E2E ready app={port} cdp={args.cdp_port}  ← 测试模式：已注册 /api/test/* 并开启 CDP")
+        except Exception as e:
+            logging.getLogger().error(f"E2E 模式初始化失败: {e}")
+
+    # 构建标识：Alpha 态的每个测试包界面都只写「DMM Alpha」，靠 exe 的时间戳/大小才能区分
+    # 用户手上是哪一个包（排查时最常踩的坑就是抓着一个旧 exe 反复验）
+    try:
+        if getattr(sys, "frozen", False):
+            _exe = Path(sys.executable)
+            _st = _exe.stat()
+            build_tag = f"{_exe.name} {_st.st_size}B {datetime.fromtimestamp(_st.st_mtime):%Y-%m-%d %H:%M:%S}"
+        else:
+            build_tag = "源码运行（未打包）"
+    except Exception:
+        build_tag = "未知"
+
     logging.getLogger().info(
         f"启动 | 游戏目录={state.GAME_DIR} (valid={is_valid_game_dir(state.GAME_DIR)}) | "
-        f"端口={port} | 预设={state.PROFILES_DIR}")
+        f"端口={port} | 构建={build_tag} | 预设={state.PROFILES_DIR}")
+    # ★ 环境诊断留痕：Xbox / PC Game Pass 用户回报问题时，只看 exe 同目录的 app.log 就能定位
+    #   （识别不到游戏目录 / 日志目录两分布不通用，这两类问题靠下面两行直接判死）
+    logging.getLogger().info(f"环境诊断·游戏目录自动识别 | {state.game_dir_diagnosis()}")
+    crash.log_crash_root_probe("启动", *crash.resolve_crash_root())
 
     url = f"http://127.0.0.1:{port}"
 

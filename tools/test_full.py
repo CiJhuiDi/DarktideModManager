@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """全量测试一键跑（替代手动分步）：
-  清进程 → Phase A: tools 直接 import 套件（17 个）
+  清进程 → Phase A: tools 直接 import 套件（22 个）
         → Phase B: 重建 mock + 起服务 → HTTP 套件（test_api/import/formats）
         → Phase C: 根目录独立目录套件（test_dmf/backups/pack，先清 backups 残留）
-        → 停服务收尾，汇总结果。
+        → 停服务收尾，汇总结果。合计 28 项。
 用法: python tools/test_full.py
 """
 import os
@@ -20,9 +20,13 @@ PORT = 8317
 PHASE_A = [  # tools/ 直接 import 套件（污染 mock 的启停状态，放前面）
     'test_backup_preview.py', 'test_batch.py', 'test_classify.py', 'test_deps.py',
     'test_dmf_force.py', 'test_export.py', 'test_folder_import.py', 'test_guard.py',
+    'test_junction_safety.py',      # 目录联接（源码直连游戏目录）安全回归
+    'test_keep_enabled.py',
     'test_load_order.py', 'test_load_order_backup.py', 'test_load_order_preview.py',
     'test_order_hint.py', 'test_preview.py', 'test_prune.py', 'test_quotes.py', 'test_simulate.py',
     'test_theme.py', 'test_theme_custom.py',
+    # 纯函数套件（不碰 mock）：日志诊断 软异常 + 原生崩溃/错误排行/导出脱敏 + 日志根目录双分布
+    'test_crash_diag.py', 'test_crash_native.py', 'test_crash_root.py',
 ]
 PHASE_C = ['test_dmf.py', 'test_backups.py', 'test_pack.py']  # 根目录，独立 mock 目录
 

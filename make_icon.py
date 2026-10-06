@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """生成应用图标 app.ico：深色圆角底 + 绿色电源开关（mod 开关管理语义）"""
+import os
 from PIL import Image, ImageDraw
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
 
 S = 256
 img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
@@ -30,6 +33,6 @@ d.arc([60, 60, 196, 196], start=130, end=410, fill=GREEN, width=17)
 d.rectangle([119.5, 46, 136.5, 112], fill=GREEN)
 
 # 保存多尺寸 ico
-img.save(r"D:\DeepseekWorkspace\darktide-mod-manager\app.ico",
+img.save(os.path.join(ROOT, "app.ico"),
          sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 print("app.ico written")

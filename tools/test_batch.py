@@ -5,12 +5,12 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 import app
 from core import patch
 from core import state
 
-ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
 state.GAME_DIR = MOCK
 state.MODS_DIR = MOCK / 'mods'
@@ -21,14 +21,14 @@ app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 # 用 build_mock 重建干净环境
 import subprocess
-subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
+subprocess.run([sys.executable, str(ROOT / 'tools' / 'build_mock.py')], check=True)
 
 # 补一个残留 ghost（清单里有、磁盘没有）
 lo = MOCK / 'mods' / 'mod_load_order.txt'
 lo.write_text(lo.read_text(encoding='utf-8') + 'GhostMod\n', encoding='utf-8')
 
 def reset():
-    subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
+    subprocess.run([sys.executable, str(ROOT / 'tools' / 'build_mock.py')], check=True)
     lo.write_text(lo.read_text(encoding='utf-8') + 'GhostMod\n', encoding='utf-8')
 
 def enabled_names():

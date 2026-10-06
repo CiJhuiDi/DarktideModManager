@@ -5,12 +5,12 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 import app
 from core import mods
 from core import state
 
-ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
 state.GAME_DIR = MOCK
 state.MODS_DIR = MOCK / 'mods'
@@ -19,7 +19,7 @@ state.BACKUP_DIR = MOCK / 'backups_deps_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
 # 重建 mock 并构造依赖场景
-subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
+subprocess.run([sys.executable, str(ROOT / 'tools' / 'build_mock.py')], check=True)
 MODS = MOCK / 'mods'
 
 def write_mod(name, packages=None, body_extra=''):
@@ -56,7 +56,7 @@ print('  无 packages:', r)
 assert r == []
 
 # 重建干净场景做分析
-subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
+subprocess.run([sys.executable, str(ROOT / 'tools' / 'build_mock.py')], check=True)
 MODS = MOCK / 'mods'
 # 场景：A 依赖 B；C 依赖 X（缺失）；D 依赖 E，E 依赖 D（循环）
 write_mod('ModA', packages=['modb'])

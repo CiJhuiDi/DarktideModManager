@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -31,6 +32,143 @@ def save_notes(notes: dict):
         NOTES_FILE.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         pass
+
+
+# ---- 「我的 mod」名单（exe 旁 my_mods.json）----
+# 玩家自己设计/私装的 mod，整合包里没有。换包时必须：① 不搬进归档 ② 保持原来的启用状态
+# （换包前开着的，换完还开着；本来就关着的，保持关着，文件留着）。
+MY_MODS_FILE = state.BASE_DIR / "my_mods.json"
+_my_mods_cache: list | None = None
+
+
+def load_my_mods() -> list:
+    """读取「我的 mod」名单（保序列表；文件不存在/损坏都返回空表）"""
+    global _my_mods_cache
+    if _my_mods_cache is None:
+        try:
+            data = json.loads(MY_MODS_FILE.read_text(encoding="utf-8")) if MY_MODS_FILE.exists() else []
+        except Exception:
+            data = []
+        _my_mods_cache = [str(x).strip() for x in data if str(x).strip()] if isinstance(data, list) else []
+    return _my_mods_cache
+
+
+def save_my_mods(names) -> list:
+    """写入名单（去重、去空），返回清洗后的列表"""
+    global _my_mods_cache
+    clean = []
+    for n in names or []:
+        n = str(n).strip()
+        if n and n not in clean:
+            clean.append(n)
+    _my_mods_cache = clean
+    try:
+        MY_MODS_FILE.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    return clean
+
+
+def set_my_mod(name: str, mine: bool) -> list:
+    """标记 / 取消标记「我的 mod」，返回更新后的名单"""
+    name = (name or "").strip()
+    if not name:
+        return load_my_mods()
+    cur = list(load_my_mods())
+    if mine and name not in cur:
+        cur.append(name)
+    elif not mine and name in cur:
+        cur.remove(name)
+    return save_my_mods(cur)
+
+
+def is_my_mod(name: str) -> bool:
+    return (name or "").strip() in load_my_mods()
+
+
+# ---- 「我的 mod」管理器库区（state.MY_MODS_DIR）----
+# 库是自研/私装 mod 的**家**：游戏目录只是部署目标，换包 / 清空 mods / 误删都不影响库。
+# 换包流程会先把游戏目录里的「我的 mod」同步进库（用户可能刚在游戏目录里改过），
+# 需要时再从库部署回来（含被清空后的恢复）。
+
+def _dir_size_kb(d: Path) -> int:
+    """目录体积（KB，向上取整：小 mod 也报 1 而不是 0，避免"收进库了却是 0KB"的误导）"""
+    try:
+        total = sum(f.stat().st_size for f in d.rglob('*') if f.is_file())
+        return max(1, -(-total // 1024)) if total else 0
+    except Exception:
+        return 0
+
+
+def store_my_mod(name: str) -> dict:
+    """把游戏目录里的该 mod 收进管理器库（覆盖库内旧副本）。库里的是"上次已知良好版本"。
+
+    ⚠️ 游戏目录里那份可能是 Junction（源码直连）——实测 `copytree` 复制的是**真实内容**，
+    所以库里拿到的是完整可用副本，符合预期。"""
+    name = (name or "").strip()
+    src = state.MODS_DIR / name
+    if not name or not src.is_dir():
+        return {"ok": False, "error": f"游戏目录里没有 {name or '(未指定)'}"}
+    dst = state.MY_MODS_DIR / name
+    try:
+        state.MY_MODS_DIR.mkdir(parents=True, exist_ok=True)
+        if dst.exists() or state.is_junction(dst):
+            state.safe_rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, dst)
+    except Exception as e:
+        return {"ok": False, "error": f"收进库失败: {e}"}
+    return {"ok": True, "name": name, "size_kb": _dir_size_kb(dst)}
+
+
+def deploy_my_mod(name: str) -> dict:
+    """从库部署回游戏 mods/（覆盖游戏目录里的同名目录）。
+
+    ⚠️ 若游戏目录里那份是 **Junction（源码直连）**：只摘链接再放副本，并在结果里回
+    `junction_replaced`，让界面能提示"你原来那个是源码联接，已换成副本"——不静默破坏开发方式。"""
+    name = (name or "").strip()
+    src = state.MY_MODS_DIR / name
+    if not name or not src.is_dir():
+        return {"ok": False, "error": f"库里没有 {name or '(未指定)'}"}
+    dst = state.MODS_DIR / name
+    was_junction = state.is_junction(dst)
+    try:
+        if dst.exists() or was_junction:
+            state.safe_rmtree(dst, ignore_errors=False)
+        shutil.copytree(src, dst)
+    except Exception as e:
+        return {"ok": False, "error": f"部署失败: {e}"}
+    return {"ok": True, "name": name, "junction_replaced": was_junction}
+
+
+def sync_my_mods_to_library() -> dict:
+    """换包前调用：把游戏目录里所有「我的 mod」的当前状态同步进库（游戏→库）。
+
+    为什么要这步：自研 mod 常直接在游戏目录里改着调试，库里那份可能是旧的；
+    换包前同步一次，库才始终是"最新已知良好版本"。"""
+    stored, skipped = [], []
+    for n in load_my_mods():
+        r = store_my_mod(n)
+        (stored if r.get("ok") else skipped).append(n)
+    return {"stored": stored, "skipped": skipped}
+
+
+def my_mods_library() -> list:
+    """库总览：[{name, in_lib, deployed, enabled, size_kb}]（给关于页/接口看）"""
+    try:
+        enabled = set(enabled_names(read_load_order()))
+    except Exception:
+        enabled = set()
+    out = []
+    for n in load_my_mods():
+        d = state.MY_MODS_DIR / n
+        out.append({
+            "name": n,
+            "in_lib": d.is_dir(),
+            "deployed": (state.MODS_DIR / n).is_dir(),
+            "enabled": n in enabled,
+            "size_kb": _dir_size_kb(d) if d.is_dir() else 0,
+        })
+    return out
 
 
 _DISPLAY_CACHE = {}  # mod名 -> (locs_mtime, 显示名, 描述, locs_tuple)；locs 缓存避免重复全树搜索

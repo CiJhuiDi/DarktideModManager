@@ -5,11 +5,11 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 import app
 from core import state
 
-ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 FRESH = ROOT / 'mock_fresh'
 
 # 重建 mock

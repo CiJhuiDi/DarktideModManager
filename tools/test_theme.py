@@ -5,12 +5,13 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 import app
 from core import theme
 from core import state
 
-MOCK = Path(r'D:\DeepseekWorkspace\darktide-mod-manager\mock')
+MOCK = ROOT / 'mock'
 state.CONFIG_FILE = MOCK / 'config_theme_test.json'
 if state.CONFIG_FILE.exists():
     state.CONFIG_FILE.unlink()

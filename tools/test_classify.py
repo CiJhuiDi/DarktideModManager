@@ -5,11 +5,11 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(errors='replace')
 from pathlib import Path
 
-sys.path.insert(0, r'D:\DeepseekWorkspace\darktide-mod-manager')
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 import app
 from core import state
 
-ROOT = Path(r'D:\DeepseekWorkspace\darktide-mod-manager')
 MOCK = ROOT / 'mock'
 state.GAME_DIR = MOCK
 state.MODS_DIR = MOCK / 'mods'
@@ -17,7 +17,7 @@ state.CONFIG_FILE = MOCK / 'config_cls_test.json'
 state.BACKUP_DIR = MOCK / 'backups_cls_test'
 app._run_patch = lambda action: {"ok": True, "patched": True, "output": "mock"}
 
-subprocess.run([sys.executable, r'D:\DeepseekWorkspace\darktide-mod-manager\tools\build_mock.py'], check=True)
+subprocess.run([sys.executable, str(ROOT / 'tools' / 'build_mock.py')], check=True)
 
 def make_zip(entries):
     buf = io.BytesIO()
