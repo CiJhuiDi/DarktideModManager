@@ -13,6 +13,7 @@ exports/
 config.json
 app.log
 notes.json
+webview_profile/
 my_mods.json
 my_mods/
 backups/

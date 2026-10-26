@@ -72,7 +72,7 @@ zip / 7z / rar / tar.gz 全支持，自动识别包结构，兼容网上主流�
 A：正常现象（官方机制）。打开管理器点「安装补丁」即可恢复，Mod 文件都还在。
 
 **Q：杀毒软件报毒？**
-A：Python 打包程序的常见误报，添加信任即可。源码全开源，无恶意行为。
+A：Python 打包程序的常见误报，添加信任即可。源码全公开，无恶意行为。
 
 **Q：用了 Mod 会不会被封？**
 A：官方对 Mod 持开放态度，但使用须遵守 Fatshark 官方 modding 政策（对其它玩家的影响、服务稳定性与性能、绕过进度或付费内容）。政策原文：https://forums.fatsharkgames.com/t/darktide-modding-policy/75407 ，后果自负。
@@ -102,7 +102,7 @@ https://github.com/CiJhuiDi/DarktideModManager
 > 内置全套 DMF 框架（加载器+汉化+补丁工具），解压即用，一键安装；整合包 zip/7z/rar 一键导入，替换模式自动归档旧包，想换回随时一键恢复；列表显示中文 mod 名；启停/排序/搜索/预设一键切换；游戏更新后点「安装补丁」一键复活。
 > 新玩家 3 分钟开玩，老玩家换包不折腾。
 > 下载：https://github.com/CiJhuiDi/DarktideModManager/releases
-> 全程图形界面，不用碰代码。源码开源，欢迎反馈。
+> 全程图形界面，不用碰代码。源码公开，欢迎反馈。
 
 ---
 
