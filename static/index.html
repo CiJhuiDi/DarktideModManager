@@ -1276,6 +1276,21 @@
       btnSave.disabled = !v;
       btnRevert.disabled = !v;
     }
+    /* 「未保存」的判断不能只看"有没有动过手"——拖动后又拖回原位、双击启停再双击回来，
+       最终状态其实没变，却标成脏，用户会觉得莫名其妙。所以比较状态指纹：
+       启用了哪些 mod + 它们的顺序，和上次保存/加载时一致就不算脏。 */
+    let savedState = '';
+    function stateFingerprint() {
+      return mods.filter(m => m.enabled).map(m => m.name).join('\n');
+    }
+    function markSaved() {          // 保存成功 / 重新加载后：重新记基准
+      savedState = stateFingerprint();
+      setDirty(false);
+    }
+    function refreshDirty() {       // 每次改动后：与基准比对
+      if (savedState === '') return;   // 还没加载完，先不动
+      setDirty(stateFingerprint() !== savedState);
+    }
 
     /* ---------- 应用内模态框（替代 prompt/confirm，避免浏览器风格弹窗） ---------- */
     let modalResolve = null;
@@ -2228,7 +2243,7 @@
       const m = mods.find(x =>x.name === name);
       if (!m) return;
       m.enabled = !m.enabled;
-      setDirty(true);
+      refreshDirty();
       render();
       flashRow(name);
       toast(m.enabled ? '已启用 ' + m.name + '（记得保存）' : '已停用 ' + m.name + '（记得保存）');
@@ -3445,7 +3460,7 @@
       const t1 = performance.now();
       render();
       const tRender = Math.round(performance.now() - t1);
-      setDirty(false);
+      markSaved();
       // 骨架屏移除（首次 load 成功后；10 秒超时兜底见脚本初始化处）
       if (!window.__bootRemoved) {
         window.__bootRemoved = true;
@@ -3502,7 +3517,7 @@
       }
       try {
         const r = await api('/api/order', { method: 'POST', body: JSON.stringify({ mods: order }) });
-        setDirty(false);
+        markSaved();
         toast(`已保存：启用 ${r.enabled.length} 个${r.disabled.length ? '，停用 ' + r.disabled.length + ' 个' : ''}`);
         await load();
       } catch (e) { toast('保存失败: ' + e.message); }
@@ -3552,7 +3567,7 @@
         }
         return o;
       };
-      const onEndBase = () => { syncFromDom(); setDirty(true); nextQuote(); };
+      const onEndBase = () => { syncFromDom(); refreshDirty(); nextQuote(); };
       const onOn = mk();
       onOn.onEnd = () => { onEndBase(); render(); syncBatchFromDom(); };
       const onOff = mk();
@@ -3938,7 +3953,7 @@
       try {
         await api('/api/profiles/' + encodeURIComponent(pf.name) + '/apply', { method: 'POST' });
         toast(`已应用预设「${pf.name}」`);
-        setDirty(false);
+        markSaved();
         await load();
       } catch (e) { toast('应用失败: ' + e.message); }
     }

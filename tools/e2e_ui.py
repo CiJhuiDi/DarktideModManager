@@ -381,6 +381,24 @@ def scenario_smoke(cdp, state_json, shot: Path):
     check('详情栏没有收起按钮', info2.get('closeBtn') is False, str(info2))
     check('点行后详情栏有内容', info2.get('hasName') is True, str(info2))
 
+    # 「未保存」要比状态指纹，不是"动过手就算"（拖回原位/双击两次不该标脏）
+    # 注意先 markSaved() 重置基准：前面的拖拽测试已经改过顺序，拿旧基准测会误判成"真的变了"
+    dty = json.loads(cdp.js("""(() => {
+      const m = mods.find(x => x.enabled);
+      if (!m) return JSON.stringify({skip: true});
+      markSaved();
+      const before = dirty;
+      m.enabled = false; refreshDirty();
+      const changed = dirty;
+      m.enabled = true; refreshDirty();
+      const restored = dirty;
+      render();
+      return JSON.stringify({before, changed, restored});
+    })()""") or '{}')
+    check('初始状态不脏', dty.get('before') is False, str(dty))
+    check('真改了会标脏', dty.get('changed') is True, str(dty))
+    check('改回原样就不算脏（不是"动过手就算"）', dty.get('restored') is False, str(dty))
+
     # 游戏运行中：卡片变灰只读，单击看详情仍可用，拖拽被拦
     lock1 = json.loads(cdp.js("""(() => {
       gameRunning = true; updateEditLocks();
