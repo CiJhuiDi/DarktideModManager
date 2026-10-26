@@ -57,16 +57,19 @@ def write_mod(mods_dir, name, ver, extra_dir=True):
     return d
 
 
-def make_pack_zip(mods: dict, load_order=None, root_wrap=""):
-    """mods: {mod名: 版本}; 组装整合包 zip（可带外层目录）"""
+def make_pack_zip(mods: dict, load_order=None, root_wrap="", with_list=True):
+    """mods: {mod名: 版本}; 组装整合包 zip（可带外层目录）。
+
+    with_list=False → 包里**不带** mod_load_order.txt（有些整合包确实没有，DMM 必须重建）"""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         base = f"{root_wrap}/mods" if root_wrap else "mods"
         for name, ver in mods.items():
             z.writestr(f"{base}/{name}/{name}.mod", mod_body(name, ver))
             z.writestr(f"{base}/{name}/scripts/{name}.lua", f"-- {name}")
-        lo = load_order if load_order is not None else list(mods)
-        z.writestr(f"{base}/mod_load_order.txt", "\n".join(lo) + "\n")
+        if with_list:
+            lo = load_order if load_order is not None else list(mods)
+            z.writestr(f"{base}/mod_load_order.txt", "\n".join(lo) + "\n")
     return buf.getvalue()
 
 
@@ -201,7 +204,7 @@ def test_mine_disabled_stays_disabled():
 
 
 def test_mine_wins_over_pack_same_name():
-    """包里有同名 → 保留我的版本，不用包的覆盖"""
+    """包里有同名、**未传选择**时 → 默认保留我的版本（安全项），不用包的覆盖"""
     setup()
     write_mod(MOCK / "mods", "MyPriv", "2.1")
     (MOCK / "mods" / "mod_load_order.txt").write_text("MyPriv\n", encoding='utf-8')
@@ -210,8 +213,61 @@ def test_mine_wins_over_pack_same_name():
     r = import_pack_archive("p.zip", data, "replace", keep_enabled=True)
     check("我的版本没被覆盖（仍是 2.1）", mod_version("MyPriv") == "2.1", f"当前 {mod_version('MyPriv')}")
     check("同名冲突已上报", "MyPriv" in (r.get("mine_pack_conflict") or []), str(r.get("mine_pack_conflict")))
-    check("消息说明「加载的是你的版本」", "游戏加载的是你的版本" in (r.get("message") or ""), (r.get("message") or "")[:200])
+    check("消息说明「保留你的版本」", "保留你的版本" in (r.get("message") or ""), (r.get("message") or "")[:200])
     check("仍在启用清单", "MyPriv" in enabled_names(read_load_order()), str(enabled_names(read_load_order())))
+
+
+def test_mine_conflict_choice():
+    """同名冲突：**逐个选择**决定用谁（程序不替玩家决定）——预览给足信息、导入按选择执行"""
+    setup()
+    write_mod(MOCK / "mods", "MyPriv", "2.1")
+    write_mod(MOCK / "mods", "MyOther", "1.0")
+    (MOCK / "mods" / "mod_load_order.txt").write_text("MyPriv\nMyOther\n", encoding='utf-8')
+    core_mods.save_my_mods(["MyPriv", "MyOther"])
+    core_mods.store_my_mod("MyPriv")
+    core_mods.store_my_mod("MyOther")
+    data = make_pack_zip({"MyPriv": "3.0", "MyOther": "9.9", "PackModA": "1.0"},
+                         ["MyPriv", "MyOther", "PackModA"])
+
+    # ① 预览：如实反映（我的 mod 不算"移除"，冲突带两边版本供玩家选）
+    p = preview_pack_archive("p.zip", data)
+    check("预览列出两个同名冲突", p.get("my_conflicts") == ["MyOther", "MyPriv"], str(p.get("my_conflicts")))
+    det = {x["name"]: x for x in (p.get("my_conflict_details") or [])}
+    check("冲突详情带两边版本",
+          det.get("MyPriv", {}).get("mine_version") == "2.1" and det.get("MyPriv", {}).get("pack_version") == "3.0",
+          str(det.get("MyPriv")))
+    check("我的 mod 不出现在「移除」里",
+          not (set(p.get("removed") or []) & {"MyPriv", "MyOther"}), str(p.get("removed")))
+
+    # ② 逐个选择：MyPriv 改用包里的、MyOther 保留我的
+    r = import_pack_archive("p.zip", data, "replace", keep_enabled=True,
+                            mine_choice={"MyPriv": "pack", "MyOther": "mine"})
+    check("导入成功", r.get("ok") is True, str(r.get("error"))[:120])
+    check("选「用包里的」→ 版本变成包的 3.0", mod_version("MyPriv") == "3.0", mod_version("MyPriv"))
+    check("选「保留我的」→ 仍是 1.0", mod_version("MyOther") == "1.0", mod_version("MyOther"))
+    check("回报用了包版本的清单", r.get("mine_used_pack") == ["MyPriv"], str(r.get("mine_used_pack")))
+    check("两个仍记为同名冲突", set(r.get("mine_pack_conflict") or []) == {"MyPriv", "MyOther"},
+          str(r.get("mine_pack_conflict")))
+    check("消息区分两种处理", "保留你的版本" in (r.get("message") or "")
+          and "按你的选择改用包里版本" in (r.get("message") or ""), (r.get("message") or "")[:240])
+    # 管理器库里留着的仍是你自己的版本（包覆盖的是游戏目录那份，回滚靠库）
+    import re as _re
+    lf = MOCK / "my_mods" / "MyPriv" / "MyPriv.mod"
+    lib_v = ""
+    if lf.is_file():
+        m = _re.search(r'version\s*=\s*"([^"]+)"', lf.read_text(encoding='utf-8'))
+        lib_v = m.group(1) if m else ""
+    check("库里副本仍是你自己的版本（未被包覆盖）", lib_v == "2.1", f"库内 {lib_v}")
+
+    # ③ 不传选择 = 一律保留我的（安全默认）
+    setup()
+    write_mod(MOCK / "mods", "MyPriv", "2.1")
+    (MOCK / "mods" / "mod_load_order.txt").write_text("MyPriv\n", encoding='utf-8')
+    core_mods.save_my_mods(["MyPriv"])
+    data2 = make_pack_zip({"MyPriv": "3.0"}, ["MyPriv"])
+    r2 = import_pack_archive("p.zip", data2, "replace", keep_enabled=True)
+    check("未传选择 → 默认保留我的（2.1）", mod_version("MyPriv") == "2.1", mod_version("MyPriv"))
+    check("未传选择 → 不上报 used_pack", not (r2.get("mine_used_pack") or []), str(r2.get("mine_used_pack")))
 
 
 def test_preview_reports_my_conflict():
@@ -344,6 +400,90 @@ def test_library_restores_wiped_mod_on_pack_swap():
     check("消息提示从库恢复", "从管理器库恢复" in (r.get("message") or ""), (r.get("message") or "")[:220])
 
 
+def test_rebuild_load_order_when_pack_has_none():
+    """包里没有 mod_load_order.txt → **必须重建**，否则 replace 归档掉旧清单后一个 mod 都不启用。
+
+    用户 2026-10-10 报的「导入的新整合包没有重建 mod_load_order」就是这个场景。"""
+    setup()
+    write_mod(MOCK / "mods", "OldMod", "1.0")
+    (MOCK / "mods" / "mod_load_order.txt").write_text("-- 我写的说明\nOldMod\n", encoding='utf-8')
+    data = make_pack_zip({"NewA": "1.0", "NewB": "1.0"}, with_list=False)   # ← 包里不带清单
+
+    p = preview_pack_archive("p.zip", data)
+    check("预览就说明会重建清单", p.get("will_rebuild_load_order") is True, str(p.get("has_load_order")))
+
+    r = import_pack_archive("p.zip", data, "replace")
+    check("导入成功", r.get("ok") is True, str(r.get("error"))[:120])
+    en = enabled_names(read_load_order())
+    check("重建后包内 mod 都启用（不再是 0 个）", set(en) == {"NewA", "NewB"}, str(en))
+    check("结果里带重建清单", set(r.get("load_order_rebuilt") or []) == {"NewA", "NewB"},
+          str(r.get("load_order_rebuilt")))
+    check("消息说明已重建清单", "没有启用清单，已重建" in (r.get("message") or ""), (r.get("message") or "")[:240])
+    text = (MOCK / "mods" / "mod_load_order.txt").read_text(encoding='utf-8')
+    check("**不搬运**旧清单的注释（那注释描述的是上一个包）", "-- 我写的说明" not in text,
+          text.replace("\n", " | ")[:140])
+    check("新清单带一行 DMM 自己的来源说明", text.lstrip().startswith("-- 本清单由 DMM"), text[:90])
+    check("已不存在的旧条目被丢掉（不留幽灵行）", "OldMod" not in text, text.replace("\n", " | ")[:120])
+
+
+def test_rebuild_keeps_order_and_merge_case():
+    """重建时：仍存在的旧条目保持原有相对顺序，新增的按名字排在后面（merge 模式下最明显）"""
+    setup()
+    for n in ("Zeta", "Alpha", "Middle"):
+        write_mod(MOCK / "mods", n, "1.0")
+    # 旧清单顺序：Zeta、Middle（只启用两个；Alpha 没启用）
+    (MOCK / "mods" / "mod_load_order.txt").write_text("Zeta\nMiddle\n", encoding='utf-8')
+    data = make_pack_zip({"BrandNew": "1.0", "BrandNew2": "1.0"}, with_list=False)  # merge：不动旧 mod，只加两个
+    r = import_pack_archive("p.zip", data, "merge")
+    check("merge 导入成功", r.get("ok") is True, str(r.get("error"))[:120])
+    en = enabled_names(read_load_order())
+    check("旧条目顺序保留，包内新条目追加在后",
+          en[:2] == ["Zeta", "Middle"] and en[2:] == ["BrandNew", "BrandNew2"], str(en))
+    check("原来没启用的 Alpha 仍不启用（不擅自替玩家开）", "Alpha" not in en, str(en))
+
+
+def test_pack_with_list_unchanged():
+    """包**自带**清单：条目与顺序照作者，但**作者的注释不落盘**（2026-10-10 用户：
+    「重新导入并没有重建清单」—— 他刚清掉 412 行作者注释，一导入又被搬回来）"""
+    setup()
+    write_mod(MOCK / "mods", "OldMod", "1.0")
+    (MOCK / "mods" / "mod_load_order.txt").write_text("OldMod\n", encoding='utf-8')
+    # 作者清单带注释与空行（真实整合包就是这样）
+    data = make_pack_zip({"AuthorA": "1.0", "AuthorB": "1.0"}, ["-- 作者说明", "AuthorB", "", "-- === 分组 ===", "AuthorA"])
+    p = preview_pack_archive("p.zip", data)
+    check("预览统计包内注释行数", p.get("pack_lo_comments") == 2, str(p.get("pack_lo_comments")))
+    r = import_pack_archive("p.zip", data, "replace")
+    check("导入成功", r.get("ok") is True, str(r.get("error"))[:120])
+    check("用的是作者清单（顺序也照作者）", enabled_names(read_load_order()) == ["AuthorB", "AuthorA"],
+          str(enabled_names(read_load_order())))
+    check("没有触发重建", not (r.get("load_order_rebuilt") or []), str(r.get("load_order_rebuilt")))
+    text = (MOCK / "mods" / "mod_load_order.txt").read_text(encoding='utf-8')
+    lines = text.splitlines()
+    check("作者注释没落盘", "作者说明" not in text and "分组" not in text, text.replace("\n", " | ")[:120])
+    check("作者的空行也没落盘", "" not in lines, str(lines))
+    check("首行换成 DMM 的来源说明", lines[0].startswith("-- 本清单由 DMM"), lines[0] if lines else "")
+    check("结果里报告丢掉的注释行数", (r.get("author_load_order") or {}).get("comments_dropped") == 2,
+          str(r.get("author_load_order")))
+    check("消息说明注释已备份", "注释" in (r.get("message") or "") and "备份" in (r.get("message") or ""),
+          (r.get("message") or "")[:220])
+    # 作者原清单整份留档（注释还在里面，随时能翻出作者的说明）
+    arch = list((MOCK / "backups").glob("pack_backup_*/author_mod_load_order.txt"))
+    check("作者原清单已归档", bool(arch), str(arch[:1]))
+    if arch:
+        at = arch[0].read_text(encoding='utf-8')
+        check("归档里保留作者注释原文", "作者说明" in at and "分组" in at, at.replace("\n", " | ")[:120])
+
+    # 作者清单里指向包内不存在的 mod → 该条移除（避免幽灵）
+    setup()
+    write_mod(MOCK / "mods", "OldMod", "1.0")
+    data2 = make_pack_zip({"AuthorA": "1.0"}, ["-- 说明", "AuthorA", "NotInPack"])
+    r2 = import_pack_archive("p.zip", data2, "replace")
+    check("作者清单里的幽灵条目被移除", enabled_names(read_load_order()) == ["AuthorA"],
+          str(enabled_names(read_load_order())))
+    check("结果报告幽灵条目", (r2.get("author_load_order") or {}).get("dropped") == ["NotInPack"],
+          str(r2.get("author_load_order")))
+
+
 if __name__ == "__main__":
     test_missing_auto_restore()
     test_same_version_silent()
@@ -352,6 +492,7 @@ if __name__ == "__main__":
     test_mine_kept_and_reenabled()
     test_mine_disabled_stays_disabled()
     test_mine_wins_over_pack_same_name()
+    test_mine_conflict_choice()
     test_preview_reports_my_conflict()
     test_single_mod_import_guard()
     test_single_mod_import_unmarked_overwrites()
@@ -360,5 +501,8 @@ if __name__ == "__main__":
     test_library_sync_from_game()
     test_library_survives_pack_swap()
     test_library_restores_wiped_mod_on_pack_swap()
+    test_rebuild_load_order_when_pack_has_none()
+    test_rebuild_keeps_order_and_merge_case()
+    test_pack_with_list_unchanged()
     print(f"\n结果: {len(FAILED)} 项失败")
     sys.exit(1 if FAILED else 0)

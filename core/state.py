@@ -48,10 +48,25 @@ def is_junction(p: Path) -> bool:
         return False
 
 
+def _force_writable(func, path, exc_info) -> None:
+    """删除失败时清掉**只读位**再试一次（Windows 上 rmtree 遇只读文件直接 WinError 5 拒绝访问）。
+
+    ⚠️ 实测（2026-10-06）：整合包里常有 git 检出，`.git/objects/*` 之类文件是只读的，
+    `shutil.rmtree(..., ignore_errors=True)` 会**静默失败**——暂存目录、临时解压目录、
+    备份清理全都删不掉，磁盘上悄悄堆垃圾（用户那次导入就留下了整份解压副本）。
+    还有"文件被占用"（WinError 32）也走这里：清位后重试一次，仍失败就放弃（不抛）。"""
+    try:
+        import stat as _stat
+        os.chmod(path, _stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
+
+
 def safe_rmtree(p: Path, ignore_errors: bool = False) -> bool:
     """删除目录/文件，但**联接与符号链接只摘链接、绝不递归进目标**；返回是否真的动了东西。
 
-    用在会碰到游戏 mods 目录 / 管理器库 / 备份目录的删除动作上。"""
+    用在会碰到游戏 mods 目录 / 管理器库 / 备份目录的删除动作上。只读文件会自动清位重试。"""
     import shutil as _shutil
     try:
         if not p.exists() and not is_junction(p):
@@ -63,9 +78,14 @@ def safe_rmtree(p: Path, ignore_errors: bool = False) -> bool:
                 p.unlink()           # 文件符号链接
             return True
         if p.is_dir():
-            _shutil.rmtree(p, ignore_errors=ignore_errors)
+            # 注意：ignore_errors=True 时 shutil 不会调用 onerror，只读文件会静默留下；
+            # 所以这里始终挂 onerror（内部自己吞异常），ignore_errors 只影响最后的兜底行为。
+            _shutil.rmtree(p, onerror=_force_writable)
         else:
-            p.unlink(missing_ok=True)
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                _force_writable(os.unlink, str(p), None)
         return True
     except Exception:
         if not ignore_errors:

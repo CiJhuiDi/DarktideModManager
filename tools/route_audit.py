@@ -20,7 +20,15 @@ if hasattr(sys.stdout, 'reconfigure'):
 
 ROOT = Path(__file__).resolve().parent.parent
 # 前端不调用、但确实存在的路由（页面本身 / 测试或外部工具用）
-DEAD_OK = {'/', '/api/test/state', '/api/test/reset', '/api/test/import_pack'}
+# · /api/pack/preview 是旧版"base64 上传预览"，现前端改走 /api/pack/stage（一次上传一次解压），
+#   该接口保留给脚本与测试（tools/test_preview.py 直接用）
+# · /api/test/* 是 --e2e 专属钩子，由 tools/e2e_ui.py 的剧本用 fetch 调，静态页里搜不到
+# · /api/order/rebuild 与 rebuild_preview 是"手动重建清单"的后端实现。前端按钮已按用户要求撤掉
+#   （2026-10-10），但接口与 core/load_order.py 的重建逻辑保留给脚本与测试
+#   （tools/test_load_order.py 直接调用它们），所以这里登记为"前端不调用但确实存在"
+DEAD_OK = {'/', '/api/test/state', '/api/test/reset', '/api/test/import_pack',
+           '/api/test/extract_reset', '/api/pack/preview',
+           '/api/order/rebuild', '/api/order/rebuild_preview'}
 
 
 def backend_routes():

@@ -86,14 +86,15 @@ ok_hash = all(
     for x in all_payload_files()
 )
 check("释放内容与内置 payload 一致", ok_hash)
-# 旧版文件被备份
-baks = list((ROOT / "backups").glob("dmf_backup_*/mods/base/mod_manager.lua"))
-check("旧版 mod_manager.lua 已备份", len(baks) >= 1, str(baks[:1]))
-check("备份内容 = 旧版", baks and baks[0].read_text(encoding="utf-8") == "-- OLD VERSION")
+# 旧版文件被备份（取最新一份：backups 里还留着历史测试的备份，取最老的会读到别人的）
+baks = sorted((ROOT / "backups").glob("dmf_backup_*/mods/base/mod_manager.lua"),
+              key=lambda p: p.stat().st_mtime)
+check("旧版 mod_manager.lua 已备份", len(baks) >= 1, str(baks[-1:]))
+check("备份内容 = 旧版", baks and baks[-1].read_text(encoding="utf-8") == "-- OLD VERSION")
 # 自动装载恢复
 check(".off 残留已清除", not (state.GAME_DIR / dmf.AUTOPATCH_DLL_OFF).exists())
 check("管理器禁用标记已清除", app.auto_patch_disabled() is False)
-check("补丁已激活提示", "补丁已激活" in r["message"], r["message"])
+check("组件启用提示", "DMF 组件已启用" in r["message"], r["message"])
 
 print("\n===== 3. 重复安装（幂等，已存在不报错） =====")
 r2 = app.api_dmf_install()
@@ -106,9 +107,11 @@ point_to(FRESH)
 # 假数据不含 patch_999 字样
 (state.GAME_DIR / "bundle" / "bundle_database.data").write_bytes(b"FAKE_DB_BINARY_DATA")
 r3 = app.api_dmf_install()
-check("文件已释放（即使补丁失败）", all((state.GAME_DIR / rel).is_file() for rel in dmf.DMF_FILES))
+check("文件已释放（即使组件没能生效）", all((state.GAME_DIR / rel).is_file() for rel in dmf.DMF_FILES))
 check("安装流程不崩溃且返回 ok", r3.get("ok") is True)
-check("message 有明确结果", ("补丁已激活" in r3.get("message", "")) or ("补丁未打上" in r3.get("message", "")), r3.get("message", "")[:200])
+check("message 有明确结果",
+      ("DMF 组件已启用" in r3.get("message", "")) or ("组件未能生效" in r3.get("message", "")),
+      r3.get("message", "")[:200])
 
 print("\n===== 5. 游戏运行中 -> 拒绝安装 =====")
 setup_fresh()

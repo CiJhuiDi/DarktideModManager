@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""DMF 一键安装/检测（纯逻辑，无 FastAPI 依赖）。"""
+"""DMF 一键安装/检测/启停（纯逻辑，无 FastAPI 依赖）。"""
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -39,16 +40,24 @@ def dmf_payload_files() -> list:
 
 
 def dmf_payload_version() -> str:
-    """内置 DMF 组件版本说明（VERSION.txt 首行，仅供展示）"""
+    """内置 DMF 组件版本（优先取 VERSION.txt 里的官方 master 提交日期）。
+    VERSION.txt 首行是老标题「DMF 内置组件（一键安装用）」，直接当版本显示没意义。"""
     try:
         v = (DMF_PAYLOAD_DIR / "VERSION.txt").read_text(encoding="utf-8", errors="ignore")
-        return v.strip().splitlines()[0] if v.strip() else ""
     except Exception:
         return ""
+    m = re.search(r"master\s*(\d{4}-\d{2}-\d{2})", v)
+    if m:
+        return "master " + m.group(1)
+    first = v.strip().splitlines()[0] if v.strip() else ""
+    return first if len(first) <= 24 else ""
 
 
 def dmf_state() -> dict:
-    """检测游戏目录 DMF 组件齐全度（自动装载插件被主动禁用 .off 不算缺失）"""
+    """检测游戏目录 DMF 组件齐全度。
+    「停用 mod 系统」只有一条路：关闭自动重载（还原数据库 + 停 autopatch）。
+    框架本身没有「停用」概念——把 dmf.mod 改名只会让每个 mod 加载时报错，不是干净关闭，所以不做。
+    自动装载插件被改名 .off 不算缺失，那是用户主动关掉自动恢复。"""
     valid = state.is_valid_game_dir(state.GAME_DIR)
     missing = []
     if valid:
@@ -117,9 +126,9 @@ def install_dmf(force: bool = False) -> dict:
     if installed:
         r = patch._run_patch("--patch")
         if r.get("patched"):
-            msg += "，补丁已激活，mods 已就绪"
+            msg += "，DMF 组件已启用，mods 已就绪"
         else:
-            msg += f"，但补丁未打上：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
+            msg += f"，但组件未能生效：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
     pruned = prune_backups()
     if pruned:
         msg += f"（已清理 {len(pruned)} 个旧备份）"

@@ -88,7 +88,7 @@ check("当前 mod 已归档", (state.BACKUP_DIR / "pack_backup_20260813_100001" 
       len(list(state.BACKUP_DIR.glob("pack_backup_*/mods/CurA"))) >= 1)
 lo = (state.MODS_DIR / "mod_load_order.txt").read_text(encoding="utf-8")
 check("load_order 已恢复", "OldX" in lo and "CurA" not in lo, lo)
-check("提示打补丁", "补丁已激活" in r3.get("message", ""), r3.get("message", "")[:120])
+check("提示自动重载", "DMF 组件已启用" in r3.get("message", ""), r3.get("message", "")[:120])
 
 print("\n===== 4. 恢复不存在的备份 =====")
 setup()

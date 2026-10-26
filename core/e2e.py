@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from core import state
 from core.crash import resolve_crash_root, CRASH_DISTRO_LABELS
+from core import imports as _imports
 from core.imports import import_pack_archive
 from core.load_order import enabled_names, read_load_order
 from core.mods import invalidate_scan_cache, load_my_mods, scan_mods
@@ -47,7 +48,29 @@ def api_test_state():
         "simulated_game_running": bool(load_config().get("simulate_game_running")),
         "crash_log_root": {"dir": str(root) if root else None,
                            "distro": CRASH_DISTRO_LABELS.get(distro, "")},
+        # 供 E2E 断言"一个整合包到底被解压几次"（用户报过重复解压）
+        "extract_calls": _imports.EXTRACT_CALLS,
+        "pack_stages": len(_imports._PACK_STAGES),
+        # 启停清单的指纹：E2E 用它证明"只开预览 / 点取消 = 没有写文件"
+        "load_order_file": _load_order_fingerprint(),
     }
+
+
+def _load_order_fingerprint() -> dict:
+    """清单文件的 size/mtime/行数（E2E 用来核对"有没有被重写"）"""
+    try:
+        st = state.LOAD_ORDER_FILE.stat()
+        lines = len(state.LOAD_ORDER_FILE.read_text(encoding="utf-8-sig", errors="replace").splitlines())
+        return {"exists": True, "size": st.st_size, "mtime": int(st.st_mtime), "lines": lines}
+    except OSError:
+        return {"exists": False, "size": 0, "mtime": 0, "lines": 0}
+
+
+@router.post("/api/test/extract_reset")
+def api_test_extract_reset():
+    """把解压计数清零（E2E 里数"本次操作解压了几次"用）"""
+    _imports.EXTRACT_CALLS = 0
+    return {"ok": True}
 
 
 @router.post("/api/test/reset")

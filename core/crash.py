@@ -64,6 +64,15 @@ def api_launch_game():
             return {"ok": False, "error": "未检测到 Steam 客户端，请先启动 Steam 并登录"}
     except Exception:
         pass
+    # 启动前先做原版启动器那一步：校验/重建着色器缓存（DMM 直接起 Darktide.exe 会跳过它）。
+    # 失败只记日志，绝不阻止启动 —— 见 core/shader.py 顶部说明。
+    shader_info = {}
+    try:
+        from core import shader as _shader
+        shader_info = _shader.prepare_for_launch()
+    except Exception as e:
+        logging.getLogger("dmm.shader").warning("着色器缓存步骤异常，照常启动: %s", e)
+
     env = os.environ.copy()
     env["SteamAppId"] = APP_ID
     try:
@@ -72,7 +81,14 @@ def api_launch_game():
         # 保存句柄：崩溃检测时可读取退出码（异常退出码为负值，如 0xC0000005）
         global _launched_game
         _launched_game = {"proc": proc, "pid": proc.pid}
-        return {"ok": True, "message": "游戏启动中，请稍候…"}
+        msg = "游戏启动中，请稍候…"
+        if shader_info.get("ok"):
+            try:
+                from core import shader as _s
+                msg = _s.summary_text(shader_info) + "，游戏启动中…"
+            except Exception:
+                pass
+        return {"ok": True, "message": msg, "shader": shader_info}
     except Exception as e:
         return {"ok": False, "error": f"启动失败: {e}"}
 

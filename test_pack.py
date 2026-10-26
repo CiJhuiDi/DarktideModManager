@@ -93,7 +93,7 @@ else:
     check("mod_load_order.txt 已替换", (state.MODS_DIR / "mod_load_order.txt").is_file())
     check("binaries/mod_loader 已导入", (state.GAME_DIR / "binaries" / "mod_loader").is_file())
     check("bundle patch_999 已导入", bool(list((state.GAME_DIR / "bundle").glob("*.patch_999"))))
-    check("补丁已激活提示", "补丁已激活" in r.get("message", ""), r.get("message", "")[:150])
+    check("组件启用提示", "DMF 组件已启用" in r.get("message", ""), r.get("message", "")[:150])
     # load_order 内容应包含包内清单的 mod（抽查 animation_events 这种常见 mod）
     lo = (state.MODS_DIR / "mod_load_order.txt").read_text(encoding="utf-8", errors="ignore")
     check("load_order 非空", len(lo.strip()) > 10)

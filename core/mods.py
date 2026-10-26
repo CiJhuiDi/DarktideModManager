@@ -322,6 +322,23 @@ def parse_mod_deps(mod_dir: Path, content: str | None = None) -> list:
     return out
 
 
+def _dep_list(dep, key: str) -> list:
+    """info.json 里 dependencies.<key> → 小写去重列表。
+    容错：dependencies 不是 dict、字段不是数组、混了非字符串都直接忽略（坏元数据不该让扫描失败）。"""
+    if not isinstance(dep, dict):
+        return []
+    vals = dep.get(key)
+    if not isinstance(vals, (list, tuple)):
+        return []
+    out, seen = [], set()
+    for x in vals:
+        s = str(x).strip().lower()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 def scan_mods() -> list:
     entries = read_load_order()
     enabled = enabled_names(entries)
@@ -393,15 +410,46 @@ def _scan_meta() -> list:
                 m = re.search(r'version\s*=\s*"([^"]+)"', mod_content)
                 if m:
                     version = m.group(1)
+            # DMF 规范：mods/<名>/info.json 才是元数据来源（dmf_mod_data.lua 读它，
+            # 字段 author / version / description）。.mod 里的 version / author 只是部分作者的自发写法。
+            # 实测本机 395 个 mod：99 个有 info.json（author 96 / version 97），.mod 里 author 仅 26 个。
+            info = {}
+            try:
+                info_path = d / "info.json"
+                if info_path.is_file():
+                    # utf-8-sig：带 BOM 的 info.json 用 utf-8 解码会在 json.loads 抛错，
+                    # 整个 mod 的作者/版本/依赖就全丢了（实测确有带 BOM 的文件）。
+                    parsed = json.loads(info_path.read_text(encoding="utf-8-sig", errors="replace"))
+                    if isinstance(parsed, dict):
+                        info = parsed
+            except Exception:
+                info = {}
+            author = ""
+            if info.get("author"):
+                author = str(info["author"]).strip()
+            if not author and mod_content:
+                am = re.search(r'\bauthor\s*=\s*"([^"]*)"', mod_content)
+                if am:
+                    author = am.group(1).strip()
+            if info.get("version"):
+                version = str(info["version"]).strip() or version
             loc = _read_locale(d)
+            # info.json 的声明式依赖（DMF 规范）：required 缺了要报，self_after/self_before 是顺序契约。
+            # 只看 .mod 的 packages 会漏掉这类声明 —— color_mark 就是这样带着 self_after 被排到
+            # 依赖对象前面的，检查却报"正常"。
+            dep = info.get("dependencies")
             metas.append({
                 "name": d.name,
                 "display_name": loc.name,
-                # description 不进列表接口（悬停浮层懒加载走 /api/mods/{name}/detail，减首屏体积）
+                # description 不进列表接口（详情栏懒加载走 /api/mods/{name}/detail，减首屏体积）
                 "note": load_notes().get(d.name, ""),
                 "version": version,
+                "author": author,
                 "missing": False,
                 "dependencies": parse_mod_deps(d, mod_content or None),
+                "dep_required": _dep_list(dep, "required"),
+                "dep_after": _dep_list(dep, "self_after"),
+                "dep_before": _dep_list(dep, "self_before"),
             })
     c["t"] = now
     c["sig"] = sig

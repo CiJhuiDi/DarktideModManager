@@ -31,7 +31,8 @@ from core.state import (GAME_FOLDER_NAME, APP_ID, SYSTEM_MODS,
                    load_config, detect_game_dir, find_game_dir, is_valid_game_dir,
                    apply_game_dir)
 from core.load_order import (read_load_order, write_load_order, backup_load_order,
-                    normalize_entries, enabled_names, is_exact_disable, set_load_order)
+                    normalize_entries, enabled_names, is_exact_disable, set_load_order,
+                    rebuild_plan, rebuild_load_order)
 from core.patch import (patch_state, is_game_running, is_game_running_real,
                   autopatch_path, autopatch_off_path, auto_patch_disabled,
                   set_auto_patch_disabled, auto_patch_if_needed,
@@ -40,11 +41,12 @@ from core.mods import (load_notes, save_notes, scan_mods, invalidate_scan_cache,
                   read_mod_description, load_my_mods, set_my_mod,
                   store_my_mod, deploy_my_mod, my_mods_library, sync_my_mods_to_library)
 from core.imports import (import_mod_archive, import_mod_from_dir, preview_pack_archive, import_pack_archive,
-                     _scan_mods_dir, diff_mods, _fmt_ts, prune_backups, export_pack,
+                     stage_pack_archive, _scan_mods_dir, diff_mods, _fmt_ts, prune_backups, export_pack,
                      backup_policy, save_backup_policy, prune_plan, backup_entries,
                      cached_backup_size, dir_size_bytes, backup_contents, restore_selected_from_backup)
 from core.dmf import dmf_state, install_dmf
 from core.crash import router as crash_router
+from core.shader import router as shader_router
 from core.theme import router as theme_router, custom_theme_state
 from core.profiles import router as profiles_router, profile_path
 from core.quotes import QUOTES
@@ -53,6 +55,7 @@ THEMES = ("abyss", "dawn", "pleasure", "plague", "rage", "mystic", "emperor")
 
 app = FastAPI(title="Darktide Mod Manager")
 app.include_router(crash_router)
+app.include_router(shader_router)
 app.include_router(theme_router)
 app.include_router(profiles_router)
 
@@ -302,9 +305,9 @@ def api_patch_install():
     set_auto_patch_disabled(False)
     st = patch_state()
     if st["patched"]:
-        return {"ok": True, "message": "补丁已激活，无需重复安装", **st}
+        return {"ok": True, "message": "DMF 组件已启用，无需重复操作", **st}
     r = _run_patch("--patch")
-    r["message"] = "✓ 补丁已安装，mods 已激活" if r.get("patched") else "✗ 补丁安装失败"
+    r["message"] = "✓ DMF 组件已启用，mods 已生效" if r.get("patched") else "✗ 启用 DMF 组件失败"
     return r
 
 
@@ -315,7 +318,7 @@ def api_patch_uninstall():
     注意：绝不动 patch_999/mod_loader 文件。"""
     st = patch_state()
     if not st["patched"] and not autopatch_off_path().exists():
-        return {"ok": True, "message": "补丁未激活，无需卸载", **st}
+        return {"ok": True, "message": "DMF 组件本来就已启用，无需停用", **st}
     msgs = []
     # 1. 禁用自动装载插件
     ap = autopatch_path()
@@ -331,10 +334,10 @@ def api_patch_uninstall():
     if st["patched"]:
         r = _run_patch("--unpatch")
         if not r.get("patched"):
-            msgs.append("补丁已卸载")
+            msgs.append("DMF 组件已停用")
         else:
-            msgs.append("补丁卸载失败")
-    msg = "✓ " + "，".join(msgs) + "（启动游戏不会自动恢复，mods 保持禁用）" if msgs else "✓ 补丁未激活"
+            msgs.append("停用 DMF 组件失败")
+    msg = "✓ " + "，".join(msgs) + "（启动游戏不会自动恢复，mods 保持禁用）" if msgs else "✓ DMF 组件已停用"
     new_st = patch_state()
     return {"ok": True, "message": msg, **new_st}
 
@@ -414,11 +417,14 @@ PACK_BAK_PREFIX = "pack_import_"
 class PackPreviewBody(BaseModel):
     filename: str = ""
     data_b64: str = ""  # 压缩包 base64（前端读取后传入）
+    token: str = ""     # /api/pack/stage/discard 用：要丢弃的暂存标识
 
 
 @app.post("/api/pack/preview")
 def api_pack_preview(body: PackPreviewBody):
-    """导入整合包前的差异预览（只读，不写文件）"""
+    """导入整合包前的差异预览（只读，不写 mods；**会解压一次，用完即删**）。
+
+    新前端走 `/api/pack/stage`：一次上传、一次解压，预览与导入共用暂存。"""
     g = guard_game_running("预览整合包")
     if g:
         return g
@@ -432,12 +438,38 @@ def api_pack_preview(body: PackPreviewBody):
     return preview_pack_archive(body.filename or "pack.zip", data)
 
 
+@app.post("/api/pack/stage")
+async def api_pack_stage(files: list[UploadFile] = File(...)):
+    """**上传并解压一次**整合包，返回 `token` + 预览。
+
+    修的是"导入时解压两遍"：预览与随后的导入共用这次解压（导入带 `staged_token` 即可，
+    不再重传包体、也不再解压）。暂存 30 分钟未用自动清理。"""
+    if not is_valid_game_dir(state.GAME_DIR):
+        return {"ok": False, "error": "游戏目录无效，请先到「关于」页设置"}
+    if not files:
+        return {"ok": False, "error": "没有收到文件"}
+    f = files[0]                      # 预览只看第一个包（与原行为一致）
+    try:
+        data = await f.read()
+    except Exception as e:
+        return {"ok": False, "error": f"读取失败: {e}"}
+    if not data:
+        return {"ok": False, "error": "文件为空"}
+    return stage_pack_archive(f.filename or "pack.zip", data)
+
+
 @app.post("/api/pack/import")
-async def api_pack_import(files: list[UploadFile] = File(...),
+async def api_pack_import(files: list[UploadFile] | None = File(None),
                           mode: str = Form("replace"),
-                          keep_enabled: str = Form("1")):
+                          keep_enabled: str = Form("1"),
+                          mine_choice: str = Form(""),
+                          staged_token: str = Form("")):
     """整合包导入：mode=replace（默认，整体替换）| merge（叠加）
-    keep_enabled=1（默认）：replace 时保留当前启用中的 mod（缺失自动补回，版本冲突返回待决策）"""
+    keep_enabled=1（默认）：replace 时保留当前启用中的 mod（缺失自动补回，版本冲突返回待决策）
+    mine_choice：**「我的 mod」与包内同名时的逐个决定**，JSON `{"mod名":"mine"|"pack"}`（前端逐个问过再传；
+        缺省/未传 = 保留玩家自己的版本，程序不替玩家做冲突决定）
+    staged_token：`/api/pack/stage` 的暂存标识。带上它就直接复用那次解压结果——**不再上传包体、不再解压第二遍**。
+        files 与 token 可同时给：先导暂存的那个包，再依次导上传的其它文件。"""
     if mode not in ("replace", "merge"):
         mode = "replace"
     # 兼容：HTTP 走 Form 注入；test_guard 等直接函数调用时 keep_enabled 可能是 Form 对象/缺失
@@ -450,15 +482,50 @@ async def api_pack_import(files: list[UploadFile] = File(...),
     g = guard_game_running("导入整合包")
     if g:
         return {"ok": False, "results": [], **g}
+    # 同名冲突的逐个决定（前端问过再传；解析失败就当没传 = 一律保留我的版本）
+    choice = {}
+    if isinstance(mine_choice, str) and mine_choice.strip():
+        try:
+            parsed = json.loads(mine_choice)
+            if isinstance(parsed, dict):
+                choice = {str(k): str(v) for k, v in parsed.items()}
+        except Exception:
+            choice = {}
     results = []
-    for f in files:
+    tok = (staged_token or "").strip()
+    if tok:
+        # 复用 /api/pack/stage 的那次解压：不重传包体、不重解压
+        st = None
+        try:
+            from core.imports import _PACK_STAGES
+            st = _PACK_STAGES.get(tok)
+        except Exception:
+            st = None
+        results.append(import_pack_archive((st or {}).get("name") or "pack.zip", b"", mode,
+                                           keep_enabled=keep, mine_choice=choice, staged_token=tok))
+    for f in (files or []):
         try:
             data = await f.read()
         except Exception as e:
             results.append({"file": f.filename, "ok": False, "error": f"读取失败: {e}"})
             continue
-        results.append(import_pack_archive(f.filename or "pack.zip", data, mode, keep_enabled=keep))
+        results.append(import_pack_archive(f.filename or "pack.zip", data, mode,
+                                           keep_enabled=keep, mine_choice=choice))
+    if not results:
+        return {"ok": False, "results": [], "error": "没有收到文件"}
     return {"ok": True, "results": results}
+
+
+@app.post("/api/pack/stage/discard")
+def api_pack_stage_discard(body: PackPreviewBody):
+    """丢弃暂存的整合包（用户取消导入时调用，立即释放临时目录，不等 30 分钟 TTL）"""
+    tok = (getattr(body, "token", "") or "").strip()
+    if not tok:
+        return {"ok": False, "error": "缺少 token"}
+    from core.imports import _PACK_STAGES, _drop_stage
+    existed = tok in _PACK_STAGES
+    _drop_stage(tok)
+    return {"ok": True, "discarded": existed}
 
 
 class KeepConflictBody(BaseModel):
@@ -726,13 +793,13 @@ def api_backup_restore(bid: str):
     # 3. 打补丁
     msg = f"✓ 已恢复备份 {bid}：{len(restored)} 项（当前 mods 已归档到 pack_backup_{ts}）"
     if is_game_running():
-        msg += "；游戏运行中，退出后自动补打补丁"
+        msg += "；游戏运行中，退出后会自动启用组件"
     else:
         r = _run_patch("--patch")
         if r.get("patched"):
-            msg += "，补丁已激活，mods 已就绪"
+            msg += "，DMF 组件已启用，mods 已就绪"
         else:
-            msg += f"，但补丁未打上：{r.get('error') or '未知原因'}"
+            msg += f"，但组件未能生效：{r.get('error') or '未知原因'}"
     pruned = prune_backups()
     if pruned:
         msg += f"（已清理 {len(pruned)} 个旧备份）"
@@ -830,22 +897,50 @@ def api_mod_detail(name: str):
 
 @app.get("/api/deps/check")
 def api_deps_check():
-    """依赖检查：缺依赖 + 循环依赖。
-    基于 .mod 显式声明的 packages（DMF 惯例：mod 名即其提供的库名）。
-    返回：missing=[{mod, needs}] / cycles=[[a,b,...]] / total / bad。"""
+    """mod 环境检查：缺依赖 + 依赖没启用 + 循环依赖 + 加载顺序。
+    来源两处：.mod 的 packages（库依赖）、info.json 的 dependencies
+    （required / self_after / self_before —— DMF 的声明式契约）。
+    返回：missing=[{mod, needs}] / inactive=[{mod, needs}] / cycles=[[a,b,...]] /
+          order_hints=[{ext, base, why}] / total / bad。
+
+    注意 missing 与 inactive 的区别：前者是「磁盘上根本没有」，后者是「装了但没启用」。
+    后者以前不报——A 依赖 B、B 装着但停用，检查照样说正常，游戏里 A 一样崩。"""
     mods = [m for m in scan_mods() if not m["missing"]]
-    # 可用库 = 所有 mod 名（小写）+ base/dmf 系统组件
-    available = {m["name"].lower() for m in mods} | {s.lower() for s in SYSTEM_MODS}
-    # 每个 mod 的依赖
+    # 「装了」与「启用」要分开两个集合：依赖在磁盘上存在 ≠ 会被加载
+    present = {m["name"].lower() for m in mods} | {s.lower() for s in SYSTEM_MODS}
+    enabled_lower = {m["name"].lower() for m in mods if m["enabled"]}
+    # 系统组件：base 由 DML 无条件加载；dmf 可能被用户停用（dmf.mod 改名）
+    sys_enabled = {"base"}
+    try:
+        ds = dmf_state()
+        # 只有「装了但被停用」才算不可用；压根没装/目录无效交给 DMF 横幅去说，别在这重复报
+        if not (ds.get("installed") and not ds.get("enabled")):
+            sys_enabled.add("dmf")
+    except Exception:
+        sys_enabled.add("dmf")
+    loadable = enabled_lower | sys_enabled
+
+    # 每个 mod 的依赖（packages 库名 + info.json 的 required）
     dep_map = {m["name"]: [d for d in m.get("dependencies", [])] for m in mods}
+    for m in mods:
+        dep_map[m["name"]] = sorted(set(dep_map[m["name"]]) | set(m.get("dep_required", [])))
+    # 只有会被加载的 mod 才值得查：未启用的 mod 根本不会进游戏，
+    # 它的依赖在不在、启没启用都不构成问题（查了只会给 300+ 个停用项刷噪音）。
+    active_mods = [m for m in mods if m["enabled"]]
+    active_names = {m["name"] for m in active_mods}
     # 小写别名（依赖声明可能是小写，mod 名可能带大小写）
     lower_to_name = {n.lower(): n for n in dep_map}
+    low_active = {m["name"].lower(): m["name"] for m in active_mods}
 
     missing = []
-    for m in mods:
+    inactive = []
+    for m in active_mods:
         for d in dep_map.get(m["name"], []):
-            if d not in available:
+            if d not in present:
                 missing.append({"mod": m["name"], "needs": d})
+            elif d not in loadable:
+                # 显示回原始大小写（声明里常写小写，界面该看到 mod 的真名）
+                inactive.append({"mod": m["name"], "needs": lower_to_name.get(d, d)})
 
     # 循环依赖（DFS 找环）
     cycles = []
@@ -872,21 +967,52 @@ def api_deps_check():
         path_set.add(node)
         path_stack.append(node)
         for d in dep_map.get(node, []):
-            # 只追踪已知 mod 之间的依赖（系统组件不算环），小写匹配
-            target = lower_to_name.get(d)
-            if target and target in dep_map:
+            # 只追踪**已启用**的 mod 之间的依赖（系统组件不算环、未启用的不加载也就不成环）
+            target = low_active.get(d)
+            if target:
                 dfs(target)
         path_stack.pop()
         path_set.discard(node)
 
-    for name in dep_map:
+    for name in active_names:
         dfs(name)
 
-    # 加载顺序提示：mod 名包含另一个已启用 mod 名（本体→扩展），扩展应排在本体之后。
+    # 加载顺序：
+    # ① info.json 里显式声明的 self_after / self_before（可靠的契约，作者写明的）
+    # ② mod 名包含关系（启发式，只在没被 ① 覆盖时补充）
     # 只检查双方都启用的对（未启用的不参与顺序）。
     enabled_names_list = [m["name"] for m in mods if m["enabled"]]
     enabled_pos = {n: i for i, n in enumerate(enabled_names_list)}
+    low_enabled = {n.lower(): n for n in enabled_names_list}
     order_hints = []
+    seen_pairs = set()
+
+    def add_hint(ext, base, why):
+        """ext 应排在 base 之后"""
+        key = (ext.lower(), base.lower())
+        if ext == base or key in seen_pairs:
+            return
+        seen_pairs.add(key)
+        order_hints.append({"ext": ext, "base": base, "why": why})
+
+    for m in mods:
+        if not m["enabled"]:
+            continue
+        name = m["name"]
+        pos_me = enabled_pos.get(name)
+        if pos_me is None:
+            continue
+        # self_after：声明"我应排在它们之后" → 它们必须在我前面
+        for d in m.get("dep_after", []):
+            other = low_enabled.get(d)
+            if other and enabled_pos[other] > pos_me:
+                add_hint(name, other, "declared")
+        # self_before：声明"我应排在它们之前" → 它们必须在我后面
+        for d in m.get("dep_before", []):
+            other = low_enabled.get(d)
+            if other and enabled_pos[other] < pos_me:
+                add_hint(other, name, "declared")
+
     for a in enabled_names_list:
         al = a.lower()
         for b in enabled_names_list:
@@ -895,15 +1021,16 @@ def api_deps_check():
             bl = b.lower()
             # B 是 A 的子串（B 为本体，A 为扩展），且 B 当前排在 A 后面 → 提示
             if len(bl) >= 4 and bl in al and enabled_pos[b] > enabled_pos[a]:
-                order_hints.append({"ext": a, "base": b})
+                add_hint(a, b, "guess")
 
     return {
         "ok": True,
         "missing": missing,
+        "inactive": inactive,
         "cycles": cycles,
         "order_hints": order_hints,
         "total": len(mods),
-        "bad": len(missing) + len(cycles) + len(order_hints),
+        "bad": len(missing) + len(inactive) + len(cycles) + len(order_hints),
     }
 
 
@@ -1313,6 +1440,37 @@ def api_set_order(body: OrderBody):
     return set_load_order(body.mods)
 
 
+class RebuildOrderBody(BaseModel):
+    add_new: bool = False         # 是否顺带启用"磁盘上有、清单里没有"的 mod（默认否：那些多是你自己禁用的）
+    strip_comments: bool = True   # 去掉整合包作者写的注释（用户要的"减少污染"，默认开）
+
+
+@app.get("/api/order/rebuild_preview")
+def api_rebuild_preview(add_new: bool = False, strip_comments: bool = True):
+    """**手动重建当前清单**的前置预览（只读）：会移除哪些幽灵条目、会去掉多少行注释、哪些 mod 保持停用"""
+    try:
+        present = {d.name for d in state.MODS_DIR.iterdir()
+                   if d.is_dir() and d.name not in state.SYSTEM_MODS and ".bak_" not in d.name}
+    except OSError:
+        return {"ok": False, "error": "mods 目录不存在"}
+    return rebuild_plan(read_load_order(), present, add_new, strip_comments)
+
+
+@app.post("/api/order/rebuild")
+def api_rebuild_order(body: RebuildOrderBody = RebuildOrderBody()):
+    """按 mods 目录现状重建 mod_load_order.txt（写前自动备份）。
+
+    默认：保留仍存在 mod 的顺序、**去掉作者注释**、移除幽灵条目、把新增 mod 追加到末尾。
+    游戏运行中拒绝（后端守卫）。"""
+    g = guard_game_running("重建启停清单")
+    if g:
+        return g
+    try:
+        return rebuild_load_order(add_new=body.add_new, strip_comments=body.strip_comments)
+    except FileNotFoundError as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/")
 def index():
     """返回主页面，并把持久化主题内联进 body 标签，避免启动闪默认色"""
@@ -1387,6 +1545,14 @@ if __name__ == "__main__":
     except Exception as e:  # 目录不可写等：退化为默认日志，不因日志配置打断启动
         logging.basicConfig(level=logging.INFO)
         logging.getLogger().warning(f"app.log 初始化失败（不影响使用）: {e}")
+
+    # 启动顺手清理整合包暂存：上一次会话若在预览中途被关掉/被杀，解压出来的临时目录会留在 %TEMP%
+    # （`_prune_stages` 只清超过 TTL 的；不足 TTL 的下次请求还会顺手清）
+    try:
+        from core.imports import _prune_stages
+        _prune_stages()
+    except Exception:
+        pass
 
     # 单实例保护：命名互斥体（已有实例时聚焦其窗口并静默退出，不弹提示框）
     # E2E 模式跳过：测试要能反复起停，且驱动脚本自己会先清进程
@@ -1513,7 +1679,16 @@ if __name__ == "__main__":
 
         win.events.closing += on_closing
         win.events.restored += on_restored
-        webview.start()
+        # private_mode 默认是 True：WebView2 每次启动都用临时配置目录，localStorage 全清空。
+        # 结果就是「新手引导只弹一次」这条根本存不住，用户每次开都要重走一遍。
+        # 显式给一个固定配置目录（exe 同目录，绿色版可写），localStorage 才会跨启动保留。
+        profile_dir = state.BASE_DIR / "webview_profile"
+        try:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            profile_dir = None
+        webview.start(private_mode=False,
+                      storage_path=str(profile_dir) if profile_dir else None)
         logging.getLogger().info("窗口已关闭，程序退出")
         cleanup_webview_children()  # 先杀 WebView2 子进程（加速用户数据锁释放），再释放互斥体
         release_single_instance()

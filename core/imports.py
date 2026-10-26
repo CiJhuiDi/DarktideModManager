@@ -6,6 +6,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
+import uuid
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -46,8 +48,14 @@ def find_rar_tool() -> str | None:
     return None
 
 
+# 解压调用计数：只为"一个包到底被解压几次"提供可断言的事实（单元测试与 --e2e 用）
+EXTRACT_CALLS = 0
+
+
 def extract_archive(data: bytes, filename: str, out_dir: Path) -> str | None:
     """按格式解压到 out_dir；返回 None 成功，否则错误信息"""
+    global EXTRACT_CALLS
+    EXTRACT_CALLS += 1
     import tarfile
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     fd, tmp_path = tempfile.mkstemp(suffix="." + (ext or "bin"))
@@ -117,13 +125,64 @@ def import_mod_archive(filename: str, data: bytes, force_mod: bool = False,
                        overwrite_mine: bool = False) -> dict:
     if not state.MODS_DIR.is_dir():
         return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
-    with tempfile.TemporaryDirectory() as td:
+    # 先试**不解压**判定：zip/7z 的目录索引里就能看出是不是整合包。
+    # 这一步以前会把整合包整个解压一遍（用户报的"解压两次/三次"其中一次就在这），现在直接返回。
+    if not force_mod:
+        kind0 = classify_archive_index(data, filename)
+        if kind0 == "pack":
+            return {"file": filename, "ok": False, "is_pack": True,
+                    "error": "检测到整合包结构，请用「导入整合包」流程"}
+        if kind0 == "ambiguous":
+            return {"file": filename, "ok": False, "ambiguous": True,
+                    "error": "检测到 mods/ 目录结构，无法确定是单个 mod 还是整合包"}
+        if kind0 is None:
+            # 索引读不到（rar / tar / 未知扩展名…）→ 解压一次到**暂存区**，判定结果连 token 一起回前端，
+            # 让整合包流程直接复用这次解压。**这是用户 2026-10-10 报的"仍然解压两次"的根源**：
+            # 老写法在这里整包解压只为判定类型，判定为整合包后前端又 stage 一次 → 一个包解两遍。
+            return _classify_by_staged_extract(filename, data, overwrite_mine)
+    with _TempExtractDir() as td:
         out = Path(td) / "out"
         out.mkdir()
         err = extract_archive(data, filename, out)
         if err:
             return {"file": filename, "ok": False, "error": err}
         return import_mod_from_dir(out, filename, force_mod=force_mod, overwrite_mine=overwrite_mine)
+
+
+def _classify_by_staged_extract(filename: str, data: bytes, overwrite_mine: bool = False) -> dict:
+    """索引读不到时：解压一次到暂存区 → 判定类型。
+
+    · 整合包 / 模棱两可 → 保留暂存并回传 `staged_token`（前端把它交给 /api/pack/import 复用，不再解压第二遍）
+    · 单个 mod → 直接用这份已解压目录导入，然后释放暂存
+    """
+    _prune_stages()
+    token = uuid.uuid4().hex
+    base = _PACK_STAGE_ROOT / token
+    out = base / "out"
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return {"file": filename, "ok": False, "error": f"暂存目录不可用: {e}"}
+    err = extract_archive(data, filename, out)
+    if err:
+        state.safe_rmtree(base, ignore_errors=True)
+        return {"file": filename, "ok": False, "error": err}
+    kind = classify_archive(out)
+    if kind in ("pack", "ambiguous"):
+        _PACK_STAGES[token] = {"dir": base, "name": filename, "size": len(data), "ts": time.time()}
+        res = {"file": filename, "ok": False, "is_pack": kind == "pack",
+               "ambiguous": kind == "ambiguous", "staged_token": token,
+               "error": "检测到整合包结构，请用「导入整合包」流程"}
+        if kind == "pack":
+            p = _preview_from_dir(filename, out)
+            p["staged_token"] = token
+            p["staged"] = True
+            res["preview"] = p
+        return res
+    try:
+        return import_mod_from_dir(out, filename, overwrite_mine=overwrite_mine)
+    finally:
+        state.safe_rmtree(base, ignore_errors=True)
 
 
 def import_mod_from_dir(out: Path, filename: str, force_mod: bool = False,
@@ -267,6 +326,83 @@ def is_pack_like(out: Path) -> bool:
     return classify_archive(out) == "pack"
 
 
+# ---------------------------------------------------- 不解压判定（省掉"为了判断类型"的解压）
+def _archive_index_names(data: bytes, filename: str) -> list[tuple[str, bool]] | None:
+    """只读压缩包**目录索引**，返回 [(相对路径, 是否目录)]；读不到索引（rar 等）返回 None。
+
+    动机（2026-10-06 用户反馈）：走「＋ 导入」选到整合包时，后端为了判断"这是不是整合包"
+    会把整个包解压一遍（`import_mod_archive` → `classify_archive`），随后预览又解压、
+    真正导入再解压 —— 一个包被解了三遍。zip/7z 的索引里已经能看出结构，不必解压。"""
+    low = (filename or "").lower()
+    try:
+        if low.endswith(".zip") or low.endswith(".zipx"):
+            import io as _io
+            with zipfile.ZipFile(_io.BytesIO(data)) as z:
+                return [(n, n.endswith('/')) for n in z.namelist()]
+        if low.endswith(".7z"):
+            import io as _io
+            import py7zr
+            with py7zr.SevenZipFile(_io.BytesIO(data)) as z:
+                return [(n, n.endswith('/')) for n in z.getnames()]
+        if low.endswith((".tar", ".gz", ".tgz", ".bz2", ".xz")):
+            # tar 家族也能只读索引；成员类型里带目录标记
+            import io as _io
+            import tarfile
+            with tarfile.open(fileobj=_io.BytesIO(data)) as t:
+                return [(m.name, m.isdir()) for m in t.getmembers()]
+    except Exception:
+        return None
+    return None
+
+
+def classify_archive_index(data: bytes, filename: str) -> str | None:
+    """**不解压**判定压缩包类型：'mod' | 'pack' | 'ambiguous'；读不到索引时返回 None（调用方再解压判定）。
+
+    规则与 `classify_archive()`（基于解压结果）保持一致，两边都改了才算改。"""
+    names = _archive_index_names(data, filename)
+    if names is None:
+        return None
+    files = {n.strip('/') for n, is_dir in names if not is_dir and n.strip('/')}
+    dirs = {n.strip('/') for n, is_dir in names if is_dir and n.strip('/')}
+    # 归档里**常常没有独立的目录条目**（Python zipfile.writestr 就不写）→ 从文件路径补出目录集合，
+    # 否则会看不到 mods/ 而把整合包误判成单个 mod
+    for f in list(files):
+        parts = f.split('/')[:-1]
+        for i in range(1, len(parts) + 1):
+            dirs.add('/'.join(parts[:i]))
+    tops = {f.split('/')[0] for f in files} | {d.split('/')[0] for d in dirs}
+    prefix = ""
+    if len(tops) == 1:                       # 与 locate_pack_root 同规则：只套一层目录则下钻
+        t = next(iter(tops))
+        if f"{t}/mods" in dirs or f"{t}/binaries/mod_loader" in files \
+                or any(n.startswith(f"{t}/bundle/") and n.endswith(".patch_999") for n in files):
+            prefix = f"{t}/"
+
+    def is_dir_(p: str) -> bool:
+        return (prefix + p).strip('/') in dirs
+
+    def is_file_(p: str) -> bool:
+        return (prefix + p).strip('/') in files
+
+    if not (is_dir_("mods") or is_file_("binaries/mod_loader")
+            or (is_dir_("bundle") and any(n.startswith(prefix + "bundle/") and n.endswith(".patch_999")
+                                          for n in files))):
+        return "mod"                          # 不是整合包结构 → 按单个 mod 处理（才需要解压）
+    if is_dir_("mods"):
+        if is_dir_("mods/base") or is_dir_("mods/dmf"):
+            return "pack"
+        if is_file_("binaries/mod_loader"):
+            return "pack"
+        if any(n.startswith(prefix + "bundle/") and n.endswith(".patch_999") for n in files):
+            return "pack"
+        mod_names = {n[len(prefix) + 5:].split('/')[0] for n in (dirs | files)
+                     if n.startswith(prefix + "mods/") and len(n[len(prefix) + 5:].split('/')) >= 2}
+        mod_names = {m for m in mod_names if m}
+        if len(mod_names) <= 1:
+            return "pack" if is_file_("mods/mod_load_order.txt") else "ambiguous"
+    return "pack"
+
+
 def _bak_path(dst: Path, ts: str) -> Path:
     """生成不冲突的备份路径"""
     bak = dst.with_name(f"{dst.name}.bak_{ts}")
@@ -305,72 +441,223 @@ def diff_mods(pack_mods: dict, cur_mods: dict) -> dict:
 
 
 def preview_pack_archive(filename: str, data: bytes) -> dict:
-    """只读预览整合包：解压后对比当前 mods，返回新增/移除/更新/相同（不写任何文件）。"""
-    if not state.MODS_DIR.is_dir():
-        return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
-    with tempfile.TemporaryDirectory() as td:
+    """只读预览整合包（**会解压一次，用完即删**）。前端新流程请用 `preview_staged_pack`：
+    它把解压结果暂存起来，供随后真正导入时复用，避免同一个包解压两遍、上传两遍。"""
+    with _TempExtractDir() as td:
         out = Path(td) / "out"
         out.mkdir()
         err = extract_archive(data, filename, out)
         if err:
             return {"file": filename, "ok": False, "error": err}
-        root = locate_pack_root(out)
-        if not is_pack_like(out):
-            return {"file": filename, "ok": False,
-                    "error": "压缩包内没有 mods/ 或加载器文件，不是暗潮整合包（单个 mod 请用「导入 mod」）"}
+        return _preview_from_dir(filename, out)
 
-        src_mods = root / "mods"
-        pack_mods = _scan_mods_dir(src_mods) if src_mods.is_dir() else {}
 
-        # 当前 mods
-        cur_mods = _scan_mods_dir(state.MODS_DIR)
+# ---------------------------------------------------------------- 整合包暂存区
+# 背景（2026-10-06 用户反馈"导入别人的整合包触发了两次解压缩"）：
+# 旧流程 = 预览解压一次（且包体走 base64 上传，体积 +33%）+ 导入再解压一次。
+# 新流程 = /api/pack/stage 上传一次、解压一次 → 返回 token；/api/pack/import 带 token 直接复用，
+# 不再重复上传与解压。token 只在本次会话内有效，30 分钟未用即清理。
+_PACK_STAGE_ROOT = Path(tempfile.gettempdir()) / "dmm_pack_stage"
+_PACK_STAGE_TTL = 30 * 60
+_PACK_STAGES: dict = {}          # token -> {"dir": Path, "name": str, "size": int, "ts": float}
 
-        diff = diff_mods(pack_mods, cur_mods)
-        added, removed, updated, same = diff["added"], diff["removed"], diff["updated"], diff["same"]
 
-        # 包内清单信息
-        has_load_order = (src_mods / "mod_load_order.txt").is_file()
-        pack_lo_count = 0
-        if has_load_order:
-            try:
-                pack_lo_count = sum(
-                    1 for ln in (src_mods / "mod_load_order.txt").read_text(encoding="utf-8", errors="ignore").splitlines()
-                    if ln.strip() and not ln.strip().startswith("--"))
-            except Exception:
-                pass
+def _drop_stage(token: str) -> None:
+    st = _PACK_STAGES.pop(token, None)
+    if st:
+        state.safe_rmtree(st["dir"], ignore_errors=True)     # 只读文件也能删（见 state._force_writable）
 
-        return {
-            "file": filename,
-            "ok": True,
-            "is_pack": True,
-            "added": added,
-            "removed": removed,
-            "updated": updated,
-            "same": same,
-            "pack_count": len(pack_mods),
-            "cur_count": len(cur_mods),
-            "has_load_order": has_load_order,
-            "pack_lo_count": pack_lo_count,
-            # 与「我的 mod」同名：导入时会保留玩家的版本、包里那个不装 → 提前告诉玩家
-            "my_conflicts": sorted(set(pack_mods) & set(load_my_mods())),
-        }
+
+def _prune_stages() -> None:
+    """清理过期暂存（含进程重启后遗留的目录）"""
+    now = time.time()
+    for tok in list(_PACK_STAGES):
+        st = _PACK_STAGES[tok]
+        if now - st["ts"] > _PACK_STAGE_TTL or not st["dir"].is_dir():
+            _drop_stage(tok)
+    try:
+        if _PACK_STAGE_ROOT.is_dir():
+            for d in _PACK_STAGE_ROOT.iterdir():
+                if d.is_dir() and now - d.stat().st_mtime > _PACK_STAGE_TTL:
+                    state.safe_rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
+
+
+class _TempExtractDir:
+    """临时解压目录（替代 tempfile.TemporaryDirectory）：退出时用 safe_rmtree 清。
+
+    必要性：包里可能有只读文件，`TemporaryDirectory` 的清理走的是普通 rmtree，
+    删不掉就把整份解压副本留在 %TEMP%（实测踩到过）。"""
+
+    def __init__(self):
+        self.path = None
+
+    def __enter__(self) -> str:
+        self.path = Path(tempfile.mkdtemp(prefix="dmm_extract_"))
+        return str(self.path)
+
+    def __exit__(self, *exc) -> bool:
+        if self.path is not None:
+            state.safe_rmtree(self.path, ignore_errors=True)
+        return False
+
+
+class _StagedContext:
+    """把暂存目录包装成 TemporaryDirectory 那样的上下文：进入给出暂存父目录，退出即删除。"""
+
+    def __init__(self, token: str):
+        self.token = token
+
+    def __enter__(self) -> str:
+        return str(_PACK_STAGES[self.token]["dir"])
+
+    def __exit__(self, *exc) -> bool:
+        _drop_stage(self.token)
+        return False
+
+
+def stage_pack_archive(filename: str, data: bytes) -> dict:
+    """上传并**解压一次**到暂存区，返回 token（供预览与随后导入共用）。
+
+    成功后返回 `{ok, token, filename, size, preview}`；失败时清理并返回错误。"""
+    _prune_stages()
+    token = uuid.uuid4().hex
+    base = _PACK_STAGE_ROOT / token
+    out = base / "out"
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        return {"ok": False, "error": f"暂存目录不可用: {e}"}
+    err = extract_archive(data, filename, out)
+    if err:
+        state.safe_rmtree(base, ignore_errors=True)
+        return {"ok": False, "error": err}
+    if not is_pack_like(out):
+        state.safe_rmtree(base, ignore_errors=True)
+        return {"ok": False,
+                "error": "压缩包内没有 mods/ 或加载器文件，不是暗潮整合包（单个 mod 请用「导入 mod」）"}
+    _PACK_STAGES[token] = {"dir": base, "name": filename, "size": len(data), "ts": time.time()}
+    p = _preview_from_dir(filename, out)
+    p["staged_token"] = token
+    p["staged"] = True
+    return {"ok": True, "token": token, "filename": filename, "size": len(data), "preview": p}
+
+
+def preview_staged_pack(filename: str, data: bytes) -> dict:
+    """预览 = 暂存 + 预览（一次解压），返回带 `staged_token` 的预览结果（兼容旧调用）"""
+    r = stage_pack_archive(filename, data)
+    if not r.get("ok"):
+        return {"file": filename, "ok": False, "error": r.get("error")}
+    return r["preview"]
+
+
+def _preview_from_dir(filename: str, out: Path) -> dict:
+    """从**已解压**的目录生成预览（预览逻辑只此一份，避免两处漂移）"""
+    if not state.MODS_DIR.is_dir():
+        return {"file": filename, "ok": False, "error": "mods 目录不存在，请先设置游戏目录"}
+    root = locate_pack_root(out)
+    if not is_pack_like(out):
+        return {"file": filename, "ok": False,
+                "error": "压缩包内没有 mods/ 或加载器文件，不是暗潮整合包（单个 mod 请用「导入 mod」）"}
+
+    src_mods = root / "mods"
+    pack_mods = _scan_mods_dir(src_mods) if src_mods.is_dir() else {}
+
+    # 当前 mods
+    cur_mods = _scan_mods_dir(state.MODS_DIR)
+
+    diff = diff_mods(pack_mods, cur_mods)
+    added, updated, same = diff["added"], diff["updated"], diff["same"]
+    # 「我的 mod」不会被移除（原地保留）→ 从"移除"里剔除、单列出来，否则预览会吓人也与实际不符
+    mine = set(load_my_mods())
+    removed = [n for n in diff["removed"] if n not in mine]
+    my_kept = [n for n in diff["removed"] if n in mine]
+    # 同名冲突：包里有、也是「我的 mod」→ **不替玩家决定**，把两边信息都给出来让前端逐个问
+    # （注意 _scan_mods_dir 的值是版本字符串，不是 dict）
+    conflicts = sorted(set(pack_mods) & mine)
+    conflict_details = []
+    for n in conflicts[:20]:                      # 正常就几个；防御性截断，避免极端情况下遍历过久
+        mine_dir, pack_dir = state.MODS_DIR / n, src_mods / n
+        conflict_details.append({
+            "name": n,
+            "mine_version": str(cur_mods.get(n) or ""),
+            "pack_version": str(pack_mods.get(n) or ""),
+            "mine_kb": max(1, -(-dir_size_bytes(mine_dir) // 1024)) if mine_dir.exists() else 0,
+            "pack_kb": max(1, -(-dir_size_bytes(pack_dir) // 1024)) if pack_dir.exists() else 0,
+        })
+
+    # 包内清单信息
+    has_load_order = (src_mods / "mod_load_order.txt").is_file()
+    pack_lo_count = 0
+    pack_lo_comments = 0
+    if has_load_order:
+        try:
+            for ln in (src_mods / "mod_load_order.txt").read_text(encoding="utf-8", errors="ignore").splitlines():
+                s = ln.strip()
+                if not s:
+                    continue
+                if s.startswith("--"):
+                    pack_lo_comments += 1
+                else:
+                    pack_lo_count += 1
+        except Exception:
+            pass
+
+    return {
+        "file": filename,
+        "ok": True,
+        "is_pack": True,
+        "added": added,
+        "removed": removed,
+        "updated": updated,
+        "same": same,
+        "pack_count": len(pack_mods),
+        "cur_count": len(cur_mods),
+        "has_load_order": has_load_order,
+        "pack_lo_count": pack_lo_count,
+        # 包里清单里的注释行数：导入时**不搬**这些注释（用户 2026-10-10：注释太多，减少污染）
+        "pack_lo_comments": pack_lo_comments,
+        # 包里没有启用清单 → 导入后会**重建**一份（否则 replace 归档掉旧清单后一个 mod 都不启用）
+        "will_rebuild_load_order": not has_load_order,
+        # 「我的 mod」相关：包内没有的（会被原地保留，不算移除）+ 与包内同名的冲突（**交给玩家逐个决定**）
+        "my_kept": my_kept,
+        "my_conflicts": conflicts,
+        "my_conflict_details": conflict_details,
+    }
+
+
+# 重建清单时写在首行的一句话：说明这份清单是谁生成的（原清单连同注释已归档，不搬运过来）
+REBUILT_LO_NOTE = "-- 本清单由 DMM 依据当前 mods 目录重建（原清单已备份到 backups/，需要可找回）"
+# 采用整合包作者清单时写在首行的一句话：条目照作者，作者注释不落盘（整份原清单已归档）
+AUTHOR_LO_NOTE = "-- 本清单由 DMM 依据整合包作者的清单生成（作者的注释与原始清单已备份到 backups/，需要可找回）"
 
 
 def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
-                       keep_enabled: bool = False) -> dict:
-    """导入整合包：解压 -> 定位根 -> 备份 -> 合并（replace 先归档旧 mods）-> 返回统计
+                       keep_enabled: bool = False, mine_choice: dict | None = None,
+                       staged_token: str = "") -> dict:
+    """导入整合包：解压（或复用暂存）-> 定位根 -> 备份 -> 合并（replace 先归档旧 mods）-> 返回统计
     mode=replace：旧 mods 整体归档到 backups/pack_backup_<ts>/mods/，mods 始终保持当前包
     mode=merge：增量叠加（同名覆盖备份）
     keep_enabled=True（仅 replace）：换包时保留当前启用中的 mod——新包缺失的自动从归档补回；
-        同名但版本不同则返回 pending_conflicts 供前端弹窗决策（本函数不擅自覆盖）。"""
+        同名但版本不同则返回 pending_conflicts 供前端弹窗决策（本函数不擅自覆盖）。
+    mine_choice：**「我的 mod」与包内同名时的逐个决定** `{mod名: 'mine'|'pack'}`，缺省 `'mine'`
+        （保留玩家自己的版本）。前端会**逐个问过**再传进来——程序不替玩家决定冲突。
+    staged_token：`/api/pack/stage` 返回的暂存标识。带上它就**直接用已解压的暂存目录**，
+        既不再上传包体、也不再解压第二遍（旧调用不传 token 时行为不变）。"""
     if not state.is_valid_game_dir(state.GAME_DIR):
         return {"file": filename, "ok": False, "error": "游戏目录无效，请先到「关于」页设置"}
-    with tempfile.TemporaryDirectory() as td:
+    staged = _PACK_STAGES.get(staged_token) if staged_token else None
+    if staged_token and not staged:
+        return {"file": filename, "ok": False,
+                "error": "整合包暂存已过期，请重新选择压缩包导入"}
+    with (_StagedContext(staged_token) if staged else _TempExtractDir()) as td:
         out = Path(td) / "out"
-        out.mkdir()
-        err = extract_archive(data, filename, out)
-        if err:
-            return {"file": filename, "ok": False, "error": err}
+        if not staged:
+            out.mkdir()
+            err = extract_archive(data, filename, out)
+            if err:
+                return {"file": filename, "ok": False, "error": err}
         root = locate_pack_root(out)
         if not is_pack_like(out):
             return {"file": filename, "ok": False,
@@ -380,6 +667,17 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
         added, replaced, root_files = [], [], []
         archived = []
         state.MODS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # 0. 先记下换包前的清单原文：replace 会把 mod_load_order.txt 一起归档搬走，
+        #    而**包里没有清单**时我们要靠它重建（见第 2 步）。注释行也要留着（作者/玩家写的说明）。
+        prev_lo_text = ""
+        try:
+            if state.LOAD_ORDER_FILE.is_file():
+                prev_lo_text = state.LOAD_ORDER_FILE.read_text(encoding="utf-8-sig", errors="replace")
+        except Exception:
+            prev_lo_text = ""
+        prev_lo_names = [ln.strip() for ln in prev_lo_text.splitlines()
+                         if ln.strip() and not ln.strip().startswith("--")]
 
         # 0. keep_enabled 快照：记录当前“启用中”的 mod（清单 enabled + 磁盘存在），供换包后补回
         #    （必须在归档前拍，归档后旧目录就没了）
@@ -398,6 +696,9 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
         #     ① 不搬进归档（留在原地）② 换完包按换包前的启用状态补回清单 ③ 包内同名不覆盖我的版本
         #     ④ **换包前先把游戏目录里的当前状态同步进库**（自研 mod 常在游戏目录里改着调试，库里那份可能是旧的）
         mine = set(load_my_mods())
+        # 同名冲突的逐个决定：缺省/未指定 = 保留我的（安全项）。前端会逐个问过再传。
+        def _take_pack(n: str) -> bool:
+            return str((mine_choice or {}).get(n, "mine")).lower() == "pack"
         mine_enabled_before = []
         lib_synced = []
         if mine:
@@ -419,8 +720,8 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
             bak_mods = state.BACKUP_DIR / f"pack_backup_{ts}" / "mods"
             bak_mods.mkdir(parents=True, exist_ok=True)
             for item in sorted(state.MODS_DIR.iterdir()):
-                if item.name in mine:
-                    mine_kept.append(item.name)   # 我的 mod：原地不动，永不进归档（包内同名也由第 1 步跳过，我的优先）
+                if item.name in mine and not _take_pack(item.name):
+                    mine_kept.append(item.name)   # 我的 mod（玩家选了保留）：原地不动，永不进归档
                     continue
                 if item.is_dir() and item.name in state.SYSTEM_MODS:
                     if item.name not in pack_has:
@@ -434,15 +735,20 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
         # 1. mods/ 增量合并（跳过 mod_load_order.txt，后面单独处理）
         src_mods = root / "mods"
         mine_pack_conflict = []
+        mine_used_pack = []
+        pack_names = set()          # 包内带来的 mod 名（重建清单时只补这些，别把玩家磁盘上的都启用）
         for d in sorted(src_mods.iterdir()) if src_mods.is_dir() else []:
             if not d.is_dir():
                 continue
+            pack_names.add(d.name)
             if d.name.lower() == "mod_load_order.txt":
                 continue
             if d.name in mine:
-                # 包里有同名，但这是玩家自己的 mod → 我的优先，绝不覆盖（改名/同名冲突都不要静默换掉用户的作品）
+                # 包内有同名且是「我的 mod」→ 按玩家的逐个决定走；没决定就保留我的（绝不自作主张覆盖作品）
                 mine_pack_conflict.append(d.name)
-                continue
+                if not _take_pack(d.name):
+                    continue
+                mine_used_pack.append(d.name)
             target = state.MODS_DIR / d.name
             if target.exists():
                 target.rename(_bak_path(target, ts))
@@ -453,15 +759,76 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
                 return {"file": filename, "ok": False, "error": f"拷贝 mod {d.name} 失败: {e}"}
             added.append(d.name)
 
-        # 2. mods/mod_load_order.txt：用整合包作者的推荐清单（先备份现有）
+        # 2. mods/mod_load_order.txt：采用整合包作者的推荐清单（**条目照作者，注释不搬**）
+        #    用户 2026-10-10 报「重新导入并没有重建清单」：他刚用「重建清单」清掉 412 行作者注释，
+        #    一导入又被原样搬回来。所以这里改成：作者的 mod 条目与顺序照抄，`--` 注释与空行不落盘，
+        #    整份作者原清单归档到 backups/pack_backup_<ts>/author_mod_load_order.txt（随时可找回）。
         lo_src = src_mods / "mod_load_order.txt"
+        lo_rebuilt = []
+        lo_author_kept, lo_author_dropped = [], []
+        lo_author_comments = 0
         if lo_src.is_file():
             lo_dst = state.MODS_DIR / "mod_load_order.txt"
+            try:
+                src_text = lo_src.read_text(encoding="utf-8-sig", errors="replace")
+            except Exception:
+                src_text = ""
+            author_names, comments = [], 0
+            for raw in src_text.splitlines():
+                s = raw.strip()
+                if not s:
+                    continue
+                if s.startswith("--"):
+                    comments += 1
+                    continue
+                if s not in author_names:          # 作者清单里的重复行去掉
+                    author_names.append(s)
+            lo_author_comments = comments
             if lo_dst.exists():
                 b = state.BACKUP_DIR / f"pack_backup_{ts}" / "mods" / lo_dst.name
                 b.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(lo_dst), str(b))
-            shutil.copy2(lo_src, lo_dst)
+            # 作者原清单整份留档（含注释），随时能翻出作者的说明与原始顺序
+            try:
+                arch = state.BACKUP_DIR / f"pack_backup_{ts}" / "author_mod_load_order.txt"
+                arch.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(lo_src, arch)
+            except Exception:
+                pass
+            try:
+                present_now = {d.name for d in state.MODS_DIR.iterdir()
+                               if d.is_dir() and d.name not in state.SYSTEM_MODS and ".bak_" not in d.name}
+            except OSError:
+                present_now = set(author_names)
+            lo_author_kept = [n for n in author_names if n in present_now]
+            lo_author_dropped = [n for n in author_names if n not in present_now]
+            text = "\n".join([AUTHOR_LO_NOTE] + lo_author_kept)
+            lo_dst.write_text(text + ("\n" if lo_author_kept else ""), encoding="utf-8")
+        else:
+            # 包里**没有**清单 → 必须重建一份。否则 replace 把旧清单归档后就什么都不剩，
+            # 玩家进游戏会发现一个 mod 都没加载（2026-10-10 用户报「导入的新整合包没有重建
+            # mod_load_order」，实验复现：包内无清单时启用数 0）。
+            # 规则：① 旧清单里**仍然存在**的 mod 保持原有相对顺序 ② 只补**包内带来的** mod，
+            # 按名字排序追加（merge 模式下玩家磁盘上原有的、自己禁用的 mod 不动，别覆盖玩家的选择）
+            # ③ 已不存在的条目丢掉（避免幽灵行）
+            # ④ **不搬运旧注释**（用户 2026-10-10 拍板）：注释密集的清单多是整合包作者写的说明，
+            #    内容是描述**上一个包**的（链接、群号、"哪些 mod 必须放前面"），搬到新清单就是脏数据；
+            #    旧清单连着注释一起进 pack_backup 归档，随时可找回。新清单只留一行 DMM 自己的来源说明。
+            lo_dst = state.MODS_DIR / "mod_load_order.txt"
+            try:
+                present = {d.name for d in state.MODS_DIR.iterdir()
+                           if d.is_dir() and d.name not in state.SYSTEM_MODS and ".bak_" not in d.name}
+            except OSError:
+                present = set()
+            kept = [n for n in prev_lo_names if n in present]
+            fresh = sorted(n for n in pack_names if n in present and n not in kept)
+            lo_rebuilt = kept + fresh
+            text = "\n".join([REBUILT_LO_NOTE] + lo_rebuilt) + ("\n" if lo_rebuilt else "")
+            try:
+                lo_dst.write_text(text, encoding="utf-8")
+            except Exception as e:
+                lo_rebuilt = []
+                root_files.append(f"(清单重建失败: {e})")
 
         # 2a. 「我的 mod」管理器库：① 换包前已把游戏目录里的当前状态同步进库（见 0a）
         #     ② 游戏目录里缺失但库里有 → 从库部署回来（被清空 / 误删 / 换了台机器都能恢复）
@@ -571,39 +938,55 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
                     return {"file": filename, "ok": False, "error": f"归档根目录文件 {f.name} 失败: {e}"}
 
         # 5. 打补丁激活 mods（游戏关闭时）
-        msg = f"✓ 整合包导入完成：新增/更新 {len(added)} 个 mod"
+        # 文案约定（2026-10-06 用户要求）：少用 emoji、少用括号塞提示 —— 补充说明写成正常分句
+        msg = f"整合包导入完成：新增/更新 {len(added)} 个 mod"
         if mode == "replace":
-            msg = f"✓ 整合包已生效：{len(added)} 个 mod 就绪"
+            msg = f"整合包已生效：{len(added)} 个 mod 就绪"
             if archived:
-                msg += f"（原 {len(archived)} 个旧 mod 已归档到 backups/pack_backup_{ts}/，可随时找回）"
+                msg += f"；原 {len(archived)} 个旧 mod 已归档到 backups/pack_backup_{ts}/，可随时找回"
             if archived_root:
-                msg += f"，根目录 {len(archived_root)} 个说明/脚本文件已归档（backups/root_cleanup_{ts}/）"
+                msg += f"；根目录 {len(archived_root)} 个说明/脚本文件已归档到 backups/root_cleanup_{ts}/"
         else:
             if replaced:
-                msg += f"（覆盖 {len(replaced)} 个，旧版已备份）"
+                msg += f"；覆盖 {len(replaced)} 个，旧版已备份"
+        if lo_rebuilt:
+            msg += (f"；包内没有启用清单，已重建一份：{len(lo_rebuilt)} 个 mod 已启用"
+                    f"（你原来的相对顺序尽量保留，新增的按名字排在后面）")
+        if lo_author_kept or lo_author_comments:
+            msg += f"；已采用作者清单：{len(lo_author_kept)} 个 mod 按作者顺序启用"
+            if lo_author_comments:
+                msg += f"，作者的 {lo_author_comments} 行注释与原始清单已备份，需要可找回"
+            if lo_author_dropped:
+                msg += f"；作者清单里 {len(lo_author_dropped)} 条对应的 mod 包内没有，已移除"
         if restored_mods:
-            msg += f"；已保留你之前启用的 {len(restored_mods)} 个 mod 文件（新包没有，未自动启用——需要请在列表手动开启）"
+            msg += f"；已保留你之前启用的 {len(restored_mods)} 个 mod 文件。新包没有它们，未自动启用，需要请在列表手动开启"
         if mine_kept:
             msg += f"；你的 mod {len(mine_kept)} 个已原地保留"
             if mine_reenabled:
-                msg += f"（{len(mine_reenabled)} 个保持启用）"
+                msg += f"，其中 {len(mine_reenabled)} 个保持启用"
         if mine_restored_from_lib:
-            msg += f"；已从管理器库恢复 {len(mine_restored_from_lib)} 个（{mine_restored_from_lib[:3]}）"
+            msg += f"；已从管理器库恢复 {len(mine_restored_from_lib)} 个：{'、'.join(mine_restored_from_lib[:3])}"
         if mine_missing:
-            msg += f"；⚠ 你的 mod {len(mine_missing)} 个游戏目录和管理器库里都没有（{mine_missing[:3]}）"
+            msg += f"；你的 mod {len(mine_missing)} 个在游戏目录和管理器库里都没有：{'、'.join(mine_missing[:3])}"
         if mine_pack_conflict:
-            msg += (f"；⚠ 包内有同名 {len(mine_pack_conflict)} 个（{mine_pack_conflict[:3]}）——已保留你的版本、"
-                    f"包里那个没装：游戏加载的是你的版本")
+            kept_n = [n for n in mine_pack_conflict if n not in mine_used_pack]
+            msg += f"；包内有同名 {len(mine_pack_conflict)} 个：{'、'.join(mine_pack_conflict[:3])}。"
+            parts = []
+            if kept_n:
+                parts.append(f"{len(kept_n)} 个保留你的版本，游戏加载的是你的")
+            if mine_used_pack:
+                parts.append(f"{len(mine_used_pack)} 个按你的选择改用包里版本")
+            msg += '；'.join(parts) if parts else '已按你的选择处理'
         if root_files:
-            msg += f"，加载器/工具文件 {len(root_files)} 个"
+            msg += f"；加载器/工具文件 {len(root_files)} 个"
         if patch.is_game_running():
-            msg += "；游戏运行中，退出后会自动补打补丁"
+            msg += "；游戏运行中，退出后会自动启用组件"
         else:
             r = patch._run_patch("--patch")
             if r.get("patched"):
-                msg += "，补丁已激活，mods 已就绪"
+                msg += "，DMF 组件已启用，mods 已就绪"
             else:
-                msg += f"，但补丁未打上：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
+                msg += f"，但组件未能生效：{r.get('error') or (r.get('output') or '未知原因')[-200:]}"
         pruned = prune_backups()
         if pruned:
             msg += f"（已清理 {len(pruned)} 个旧备份）"
@@ -611,9 +994,13 @@ def import_pack_archive(filename: str, data: bytes, mode: str = "replace",
         return {"file": filename, "ok": True, "message": msg,
                 "mods": added, "replaced": replaced, "archived": archived,
                 "root_files": root_files, "load_order": lo_src.is_file(), "mode": mode,
+                "load_order_rebuilt": lo_rebuilt,
+                "author_load_order": {"kept": lo_author_kept, "dropped": lo_author_dropped,
+                                      "comments_dropped": lo_author_comments},
                 "restored": restored_mods, "pending_conflicts": pending_conflicts, "ts": ts,
                 "mine_kept": mine_kept, "mine_reenabled": mine_reenabled,
                 "mine_missing": mine_missing, "mine_pack_conflict": mine_pack_conflict,
+                "mine_used_pack": mine_used_pack,
                 "mine_lib_synced": lib_synced, "mine_restored_from_lib": mine_restored_from_lib}
 
 

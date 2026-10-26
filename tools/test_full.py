@@ -21,6 +21,9 @@ PHASE_A = [  # tools/ 直接 import 套件（污染 mock 的启停状态，放�
     'test_backup_preview.py', 'test_batch.py', 'test_classify.py', 'test_deps.py',
     'test_dmf_force.py', 'test_export.py', 'test_folder_import.py', 'test_guard.py',
     'test_junction_safety.py',      # 目录联接（源码直连游戏目录）安全回归
+    'test_shader.py',               # 着色器缓存：复刻原版启动器启动前那一步（失败不阻断启动）
+    'test_pack_stage.py',           # 整合包只解压一次（预览与导入共用暂存）
+    'test_pack_indexless.py',       # 索引读不到的格式（rar/tar/未知扩展名）也只解压一次
     'test_keep_enabled.py',
     'test_load_order.py', 'test_load_order_backup.py', 'test_load_order_preview.py',
     'test_order_hint.py', 'test_preview.py', 'test_prune.py', 'test_quotes.py', 'test_simulate.py',
@@ -34,8 +37,13 @@ FAILED = []
 
 
 def run(cmd, cwd=None):
-    r = subprocess.run(cmd, cwd=cwd or ROOT, capture_output=True, text=True,
-                       encoding='gbk', errors='replace')  # 测试脚本 stdout 是 GBK（Windows 控制台）
+    # 子进程的中文输出必须**确定性地**读成 UTF-8：以前写死 encoding='gbk'，一旦外层环境把
+    # PYTHONIOENCODING 设成 utf-8（例如 tools/e2e_all.py 那样统一编码），子进程改吐 UTF-8，
+    # 这里按 GBK 解就成了乱码 —— 最直接的后果是 test_pack.py「样品包」的已知 bug 跳过逻辑
+    # 匹配不上，闸门凭空报 30/31（实测踩到）。这里显式给子进程定 UTF-8 并用 UTF-8 解码。
+    env = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+    r = subprocess.run(cmd, cwd=cwd or ROOT, capture_output=True, text=True, env=env,
+                       encoding='utf-8', errors='replace')
     last = (r.stdout or '').strip().splitlines()
     tail = last[-1] if last else ''
     ok = r.returncode == 0

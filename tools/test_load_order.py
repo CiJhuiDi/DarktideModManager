@@ -56,6 +56,57 @@ test('游戏运行中拒绝', not r.get('ok') and '游戏正在运行' in r.get(
 app.is_game_running = lambda: False
 patch.is_game_running = lambda: False
 
+print('=== 手动重建当前清单（去掉作者注释） ===')
+# 造一份"脏清单"：作者注释 + 已有 mod + 幽灵条目 + 磁盘上新增但没在清单里的 mod
+for n in ('RebuildA', 'RebuildB', 'RebuildNew'):
+    d = MOCK / 'mods' / n
+    d.mkdir(exist_ok=True)
+    (d / f'{n}.mod').write_text('return { run = function() new_mod("x", {}) end, packages = {}, version = "1.0" }',
+                                encoding='utf-8')
+lo.write_text('-- 顶部说明：本包由某某整合\n-- 遇到问题加群 123456\n'
+              'RebuildA\n-- === 界面类 ===\nRebuildB\nGhostNotOnDisk\n-- 下面必须在前\n',
+              encoding='utf-8')
+
+pv = app.api_rebuild_preview()
+test('预览可用', pv.get('ok') is True, str(pv)[:120])
+test('预览认出幽灵条目', pv.get('ghosts') == ['GhostNotOnDisk'], str(pv.get('ghosts')))
+test('预览统计注释行数', pv.get('comments') == 4, str(pv.get('comments')))
+test('预览说明注释会被去掉', pv.get('comments_dropped') == 4 and pv.get('comments_kept') == 0, str(pv)[:90])
+test('默认不启用磁盘上原本没启用的 mod（否则会把整个包全开）',
+      pv.get('new') == [] and 'RebuildNew' in (pv.get('new_skipped') or []), str(pv.get('new_skipped')))
+
+r = app.api_rebuild_order(app.RebuildOrderBody())      # 默认 strip_comments=True, add_new=False
+test('重建 ok', r.get('ok') is True, str(r)[:120])
+text = lo.read_text(encoding='utf-8')
+lines = text.splitlines()
+test('作者注释已去掉', all(not l.startswith('-- 顶部说明') and '界面类' not in l and '下面必须在前' not in l
+                          for l in lines), lines)
+test('首行是 DMM 自己的来源说明', lines[0].startswith('-- 本清单由 DMM'), lines[0] if lines else '')
+test('幽灵条目被移除', 'GhostNotOnDisk' not in text, lines)
+test('原有 mod 顺序保留', [l for l in lines if l.startswith('Rebuild')] == ['RebuildA', 'RebuildB'], lines)
+test('原本没启用的 mod 仍然没启用', 'RebuildNew' not in (r.get('result') or []), str(r.get('result')))
+test('结果统计正确', r.get('removed') == ['GhostNotOnDisk'] and r.get('added') == [], str(r)[:120])
+
+print('=== 重建的选项：保留注释 / 明确要求才启用新增 ===')
+lo.write_text('-- 作者说明\nRebuildA\nRebuildB\n', encoding='utf-8')
+r2 = app.api_rebuild_order(app.RebuildOrderBody(add_new=False, strip_comments=False))
+test('可保留注释', '-- 作者说明' in lo.read_text(encoding='utf-8'), lo.read_text(encoding='utf-8')[:80])
+test('不自动启用新增（RebuildNew 不在清单）', 'RebuildNew' not in (r2.get('result') or []), str(r2.get('result')))
+r2b = app.api_rebuild_order(app.RebuildOrderBody(add_new=True, strip_comments=False))
+test('明确要求时才追加新增', 'RebuildNew' in (r2b.get('result') or []), str(r2b.get('result')))
+
+print('=== 重建也会先备份 ===')
+before_baks = len(list((state.BACKUP_DIR).glob('mod_load_order.*.bak')))
+app.api_rebuild_order(app.RebuildOrderBody())
+after_baks = len(list((state.BACKUP_DIR).glob('mod_load_order.*.bak')))
+test('重建前留了备份', after_baks >= before_baks, f'{before_baks} -> {after_baks}')
+
+print('=== 游戏运行中拒绝重建 ===')
+patch.is_game_running = lambda: True
+r3 = app.api_rebuild_order(app.RebuildOrderBody())
+test('游戏运行中拒绝重建', not r3.get('ok') and '游戏正在运行' in (r3.get('error') or ''), str(r3)[:120])
+patch.is_game_running = lambda: False
+
 # 清理
 shutil.rmtree(state.BACKUP_DIR, ignore_errors=True)
 state.CONFIG_FILE.unlink(missing_ok=True)

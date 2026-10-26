@@ -135,13 +135,13 @@ def auto_patch_if_needed() -> dict:
     """管理器版自动装载：补丁未打 + 未手动禁用 + 游戏未运行 -> 自动打补丁"""
     st = patch_state()
     if st["patched"]:
-        return {"ok": True, "message": "补丁已激活"}
+        return {"ok": True, "message": "DMF 组件已启用"}
     if auto_patch_disabled():
         return {"ok": True, "message": "自动装载已禁用（手动卸载状态）"}
     if is_game_running():
-        return {"ok": True, "message": "游戏运行中，跳过自动打补丁"}
+        return {"ok": True, "message": "游戏运行中，跳过组件启用"}
     r = _run_patch("--patch")
-    r["message"] = "✓ 自动装载：补丁已重新打上" if r.get("patched") else "✗ 自动打补丁失败"
+    r["message"] = "✓ DMF 组件：已恢复生效" if r.get("patched") else "✗ 启用 DMF 组件失败"
     return r
 
 
@@ -156,9 +156,9 @@ def _run_patch(action: str) -> dict:
     """执行 dtkit-patch（--patch / --unpatch）"""
     st = patch_state()
     if not st["tool_exists"]:
-        return {"ok": False, "error": "未找到 tools\\dtkit-patch.exe，无法操作补丁", **st}
+        return {"ok": False, "error": "未找到 tools\\dtkit-patch.exe，无法操作 DMF 组件", **st}
     if is_game_running():
-        return {"ok": False, "error": "游戏正在运行，请先关闭游戏再操作补丁", **st}
+        return {"ok": False, "error": "游戏正在运行，请先关闭游戏再操作 DMF 组件", **st}
     try:
         r = subprocess.run(
             [str(st["tool_path"]), action, str(state.GAME_DIR / "bundle")],

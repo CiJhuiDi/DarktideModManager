@@ -116,19 +116,67 @@ class CDP:
 
 # ---------------------------------------------------------------- 起停应用
 
+def running_instances() -> list:
+    """已在运行的 DMM 实例（exe 与源码模式都算）。**这些不是我们起的**，绝不能杀。"""
+    out = []
+    try:
+        r = subprocess.run(
+            ['powershell', '-NoProfile', '-Command',
+             "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'DarktideModManager.exe' "
+             "-or ($_.Name -like 'python*' -and $_.CommandLine -like '*app.py*') } "
+             "| Select-Object -ExpandProperty ProcessId"],
+            capture_output=True, text=True, timeout=30)
+        out = [int(x) for x in (r.stdout or '').split() if x.strip().isdigit()]
+    except Exception:
+        pass
+    return out
+
+
 def kill_app(proc=None):
-    """关掉被测应用：先杀我们起的进程（源码模式是 python），再清同名 exe（防残留抢端口）"""
-    if proc is not None:
+    """只关**我们自己起的**进程。
+
+    ⚠️ 以前这里无脑 `taskkill /IM DarktideModManager.exe`，会把用户正在用的窗口一起杀掉
+    （2026-10-06 实际发生过：用户正在验收整合包导入，窗口被 E2E 干掉，界面断言也跟着偶发失败）。
+    现在：给了 proc 就杀 proc 及其子进程；没给就什么都不做。
+    另外顺手清掉**我们自己留下的孤儿 WebView2**——它会锁住 exe，让随后的重建同步失败。"""
+    if proc is None:
+        return
+    try:
+        subprocess.run(['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                       capture_output=True, timeout=20)
+    except Exception:
         try:
             proc.kill()
         except Exception:
             pass
-    subprocess.run(['taskkill', '/F', '/IM', 'DarktideModManager.exe'],
-                   capture_output=True, timeout=20)
+    # 孤儿 WebView2（命令行指向 DMM 的）会占着 exe 句柄；只清属于我们的那些
+    try:
+        r = subprocess.run(
+            ['powershell', '-NoProfile', '-Command',
+             "Get-CimInstance Win32_Process -Filter \"Name='msedgewebview2.exe'\" | "
+             "Where-Object { $_.CommandLine -like '*DarktideModManager*' } | "
+             "Select-Object -ExpandProperty ProcessId"],
+            capture_output=True, text=True, timeout=30)
+        for pid in [x for x in (r.stdout or '').split() if x.strip().isdigit()]:
+            subprocess.run(['taskkill', '/F', '/T', '/PID', pid], capture_output=True, timeout=20)
+        if r.stdout.strip():
+            time.sleep(2.0)          # 等句柄释放，免得紧接着的构建同步失败
+    except Exception:
+        pass
 
 
 def launch(args):
-    """返回 (工作目录, 进程, 期望的 app.log 路径)"""
+    """返回 (工作目录, 进程)。**起之前先看有没有别人在跑**——有就拒绝，不打扰用户的窗口。"""
+    others = running_instances()
+    if others:
+        print(f'  ✗ 检测到已在运行的 DMM 实例（PID {others}）。')
+        print('    E2E 需要独占一个实例，但**不会**去杀你正在用的窗口。')
+        print('    请先自己关掉它再跑；确认要强杀可加 --allow-kill。')
+        if not getattr(args, 'allow_kill', False):
+            sys.exit(2)
+        for pid in others:
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(pid)], capture_output=True, timeout=20)
+        time.sleep(1.5)
     if args.source:
         workdir = ROOT
         proc = subprocess.Popen([sys.executable, 'app.py', '--e2e', '--port', str(args.port)],
@@ -209,6 +257,9 @@ def cdp_target(cdp_port, app_port, timeout=30):
 
 def scenario_smoke(cdp, state_json, shot: Path):
     """冒烟：页面真的渲染出来了 + 无 JS 异常 + 前后端数据一致 + 截图"""
+    # 首次打开会自动弹新手引导（遮罩会挡住坐标计算），先关掉
+    cdp.js("try { window.__dmmEndTour && window.__dmmEndTour(); } catch(e) {}; true")
+    time.sleep(0.3)
     info = cdp.js("JSON.stringify({title: document.title, rows: document.querySelectorAll('.mod-row').length,"
                   "stats: (document.querySelector('#stats')||{}).textContent || '',"
                   "loading: !!document.querySelector('.boot-loading'),"
@@ -222,10 +273,212 @@ def scenario_smoke(cdp, state_json, shot: Path):
     check('前后端 mod 数一致', rows == int(state_json['game']['mods']),
           f"前端 {rows} vs 后端 {state_json['game']['mods']}")
     check('状态栏有文案', '共' in (d.get('stats') or ''), str(d.get('stats')))
+
+    # 侧边栏展开/收起（52px 图标栏 ↔ 168px 文字栏；transition 0.16s，每步要等它走完）
+    cdp.js("""(() => {
+      const nav = document.querySelector('.sidebar');
+      const b = document.getElementById('btnSidebarToggle');
+      if (nav.classList.contains('expanded')) b.click();   // 上次跑留下展开态就先收回去
+      return true;
+    })()""")
+    time.sleep(0.4)
+    sb0 = json.loads(cdp.js("""JSON.stringify({
+      w: Math.round(document.querySelector('.sidebar').getBoundingClientRect().width),
+      font: getComputedStyle(document.querySelector('.sidebar button[data-view="mods"]')).fontSize})""") or '{}')
+    check('侧边栏默认 52px 图标栏（文字隐藏）', sb0.get('w') == 52 and sb0.get('font') == '0px', str(sb0))
+
+    cdp.js("document.getElementById('btnSidebarToggle').click(); true")
+    time.sleep(0.4)
+    sb1 = json.loads(cdp.js("""JSON.stringify({
+      w: Math.round(document.querySelector('.sidebar').getBoundingClientRect().width),
+      font: getComputedStyle(document.querySelector('.sidebar button[data-view="mods"]')).fontSize,
+      lbl: !!document.querySelector('#btnSidebarToggle .lbl'),
+      lblW: Math.round((document.querySelector('#btnSidebarToggle .lbl') || {getBoundingClientRect: () => ({width: 0})})
+             .getBoundingClientRect().width),
+      saved: localStorage.getItem('dmm_sidebar_open')})""") or '{}')
+    check('展开后回到 168px 且文字可见',
+          sb1.get('w') == 168 and sb1.get('font') not in ('0px', None) and (sb1.get('lblW') or 0) > 0, str(sb1))
+    check('展开状态记进 localStorage', sb1.get('saved') == '1', str(sb1))
+
+    # Ctrl+B 也能切，切完收回 52px（不影响后面的截图）
+    cdp.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'b', ctrlKey: true, bubbles: true})); true")
+    time.sleep(0.4)
+    sbc = json.loads(cdp.js("""JSON.stringify({
+      w: Math.round(document.querySelector('.sidebar').getBoundingClientRect().width),
+      saved: localStorage.getItem('dmm_sidebar_open')})""") or '{}')
+    check('Ctrl+B 能收起侧边栏', sbc.get('w') == 52 and sbc.get('saved') == '0', str(sbc))
+
+    # 三栏布局 + 详情栏（2026-10-26 UI 重写）
+    lay = json.loads(cdp.js("""JSON.stringify({
+      cols: document.querySelectorAll('.cols .col').length,
+      off: document.querySelectorAll('#bodyOff .mod-row').length,
+      on: document.querySelectorAll('#bodyOn .mod-row').length,
+      infoEmpty: (document.querySelector('#modInfo .info-desc') || {}).textContent || ''})""") or '{}')
+    check('Mod 页是三栏（未启用 / 已启用 / 详情）', lay.get('cols') == 3, str(lay))
+    check('两栏行数之和与后端一致',
+          (lay.get('off') or 0) + (lay.get('on') or 0) == rows, str(lay))
+
+    # 拖动落位 → 顺序必须写回数据。曾因 onEnd 不回写 mods，render() 按旧顺序重绘 = 松手弹回原位
+    reorder = json.loads(cdp.js("""(() => {
+      const body = document.getElementById('bodyOn');
+      const rows = [...body.querySelectorAll('.mod-row')];
+      if (rows.length < 3) return JSON.stringify({skip: true, n: rows.length});
+      const before = rows.map(r => r.dataset.name).slice(0, 4);
+      body.insertBefore(rows[2], rows[0]);          // 模拟「把第 3 行拖到最前」
+      const moved = [...body.querySelectorAll('.mod-row')].map(r => r.dataset.name).slice(0, 4);
+      window.__dmmReorderFromDom();                 // 拖完做的事：DOM 顺序 → 数据 → 重绘
+      const after = [...document.querySelectorAll('#bodyOn .mod-row')].map(r => r.dataset.name).slice(0, 4);
+      return JSON.stringify({skip: false, before, moved, after});
+    })()""") or '{}')
+    if reorder.get('skip'):
+        skip('拖拽排序（已启用 mod 不足 3 个）', str(reorder))
+    else:
+        check('拖动落位后重绘不弹回原顺序（顺序已写回数据）',
+              reorder.get('after') == reorder.get('moved'), str(reorder))
+
+    # 左栏的行必须可拖（拖出去 = 启用）。Sortable 在 pointerdown 时才给行打 draggable：
+    # 曾被 filter:'.disabled'（未启用行都带这个 class）和 sort:false（连 draggable 都不加）双双挡死。
+    # 注意：Sortable 只在 document 的 mouseup 上收尾，所以测完要补一次 mouseup 再放行后续操作。
+    press = json.loads(cdp.js("""(() => {
+      const row = document.querySelector('#bodyOff .mod-row');
+      if (!row) return JSON.stringify({skip: true});
+      const b = row.getBoundingClientRect();
+      row.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, cancelable: true,
+        clientX: b.left + 30, clientY: b.top + 10, button: 0, buttons: 1,
+        pointerId: 1, pointerType: 'mouse', isPrimary: true}));
+      const ok = row.draggable === true;
+      document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true}));
+      const inst = window.Sortable ? Sortable.get(document.getElementById('bodyOff')) : null;
+      return JSON.stringify({skip: false, draggable: ok, filter: inst ? String(inst.options.filter) : null});
+    })()""") or '{}')
+    if press.get('skip'):
+        skip('左栏拖拽（左栏没有行）', str(press))
+    else:
+        check('左栏的行能被拖（没被 filter / sort:false 挡住）',
+              press.get('draggable') is True and press.get('filter') in ('null', None), str(press))
+
+    cdp.js("(() => { const r = document.querySelector('#bodyOn .mod-row') || "
+           "document.querySelector('#bodyOff .mod-row'); if (r) r.click(); return true; })()")
+    time.sleep(0.7)
+    det = json.loads(cdp.js("""JSON.stringify({
+      name: (document.querySelector('#modInfo .info-name') || {}).textContent || '',
+      kv: document.querySelectorAll('#modInfo .info-kv').length,
+      note: !!document.getElementById('noteEdit')})""") or '{}')
+    check('点行后详情栏显示内容', bool(det.get('name')) and (det.get('kv') or 0) >= 3, str(det))
+    check('详情栏有备注编辑区', det.get('note') is True, str(det))
+
+    # 详情栏常驻：没有「收起」按钮，也不会被点行藏起来
+    info2 = json.loads(cdp.js("""(() => {
+      const col = document.getElementById('colInfo');
+      const disp = () => getComputedStyle(col).display;
+      const row = document.querySelector('#bodyOn .mod-row') || document.querySelector('#bodyOff .mod-row');
+      if (row) row.click();
+      return JSON.stringify({display: disp(),
+        closeBtn: !!document.getElementById('infoClose'),
+        hasName: ((document.querySelector('#modInfo .info-name') || {}).textContent || '').length > 0});
+    })()""") or '{}')
+    check('详情栏常驻显示', info2.get('display') != 'none', str(info2))
+    check('详情栏没有收起按钮', info2.get('closeBtn') is False, str(info2))
+    check('点行后详情栏有内容', info2.get('hasName') is True, str(info2))
+
+    # 「恢复布局」必须常驻可见（原来「改过布局才出现」，用户根本找不到这功能）
+    rz = json.loads(cdp.js("""(() => {
+      const b = document.getElementById('btnResetLayout');
+      if (!b) return JSON.stringify({exists: false});
+      return JSON.stringify({exists: true, display: getComputedStyle(b).display,
+        vis: b.getBoundingClientRect().width > 0});
+    })()""") or '{}')
+    check('「恢复布局」按钮常驻可见', rz.get('exists') is True and rz.get('vis') is True, str(rz))
+
+    # 诊断条：两个灯常驻（DMF 组件已并入补丁状态、依赖检查），点一项能真的展开/收起对应横幅
+    # （2026-10-26 修：此处曾绑了两个 click 监听，后一个把状态强制设回 true，导致点不动）
+    diag = json.loads(cdp.js("""(() => {
+      const disp = k => getComputedStyle(document.getElementById(k + 'Wrap')).display;
+      // 点击之前先记一次：曾因 applyBannerMode 只在「状态刚变化」时调用，
+      // 首次加载（一直红或一直绿）一条都不进，诊断条保持 display:none 一直不出现。
+      const litBefore = getComputedStyle(document.getElementById('bannerLights')).display;
+      let key = ['dmf','dep'].find(k => disp(k) !== 'none') || 'dmf';
+      const cap = key[0].toUpperCase() + key.slice(1);
+      const b = disp(key);
+      document.getElementById('lightItem' + cap).click();
+      const a = disp(key);
+      document.getElementById('lightItem' + cap).click();
+      const c = disp(key);
+      return JSON.stringify({key, b, a, c, litBefore, lights: document.querySelectorAll('.b-light-item').length,
+        lit: document.getElementById('bannerLights').style.display});
+    })()""") or '{}')
+    check('诊断条一开始就可见（不用先点一下）', diag.get('litBefore') == 'flex', str(diag))
+    check('诊断条常驻一行', diag.get('lit') == 'flex', str(diag))
+    check('诊断条只剩两项（补丁已并入 DMF 组件）', diag.get('lights') == 2, str(diag))
+    check('点诊断条能收起/展开对应横幅', diag.get('b') != diag.get('a'), str(diag))
+    check('再点一下恢复原状', diag.get('c') == diag.get('b'), str(diag))
+
+    # DMF 横幅：能展开、有文案、有操作按钮（mock 里没装 DMF → 文本含「未检测到」）
+    dmf = json.loads(cdp.js("""(() => {
+      const disp = k => getComputedStyle(document.getElementById(k + 'Wrap')).display;
+      if (disp('dmf') === 'none') document.getElementById('lightItemDmf').click();
+      const txt = (document.querySelector('#dmfBanner') || {}).textContent || '';
+      const btns = [...document.querySelectorAll('#dmfBanner button')].map(b => b.textContent.trim());
+      return JSON.stringify({visible: disp('dmf') !== 'none', txt: txt.trim().slice(0, 80), btns});
+    })()""") or '{}')
+    check('DMF 横幅能展开', dmf.get('visible') is True, str(dmf))
+    check('DMF 横幅有状态文案和操作按钮',
+          bool(dmf.get('txt')) and bool(dmf.get('btns')), str(dmf))
+
     errs = cdp.js_errors()
     check('页面无 JS 异常/错误日志（favicon 除外）', not errs, '; '.join(errs)[:300])
+
+    # 着色器缓存状态（只读断言；**绝不点启动按钮** —— 那会真的把游戏起起来）
+    sh = json.loads(cdp.js("fetch('/api/shader/status').then(r => r.text())") or '{}')
+    check('着色器缓存状态接口可用', sh.get('ok') is True, str(sh)[:140])
+    line = cdp.js("(document.getElementById('shaderLine')||{}).textContent || ''")
+    if sh.get('ready'):
+        check('侧边栏显示着色器缓存状态行', '着色器缓存' in (line or ''), str(line))
+    else:
+        skip('本环境没有游戏自带的着色器缓存构建器，状态行留空（正确表现）', str(sh.get('builder'))[:80])
+    check('启动按钮文案未被着色器功能改坏',
+          '启动游戏' in (cdp.js("(document.getElementById('btnLaunchSidebar')||{}).textContent || ''") or ''),
+          '')
+    # 底部工具栏不该再出现「重建清单」（2026-10-10 用户要求撤掉这个按钮）
+    check('工具栏没有再出现「重建清单」按钮',
+          cdp.js("!document.getElementById('btnRebuildOrder')") is True,
+          cdp.js("(document.querySelector('.foot')||{}).innerText || ''"))
+
     p = cdp.screenshot(shot)
     check('截图已保存', p.is_file() and p.stat().st_size > 1000, str(p))
+
+    # 新手引导：能起来、四块暗区拼出洞、走完自己收掉
+    cdp.js("window.__dmmStartTour ? (window.__dmmStartTour(), true) : false")
+    time.sleep(0.8)
+    tour = json.loads(cdp.js("""JSON.stringify({
+      hl: getComputedStyle(document.getElementById('tourHl')).display,
+      box: getComputedStyle(document.getElementById('tourBox')).display,
+      tiles: document.querySelectorAll('#tourMask .tm').length,
+      title: (document.querySelector('#tourBox h4') || {}).textContent || '',
+      text: (document.querySelector('#tourBox p') || {}).textContent || ''})""") or '{}')
+    check('引导能打开（高亮 + 气泡 + 遮罩）',
+          tour.get('hl') == 'block' and tour.get('box') == 'block'
+          and tour.get('tiles') == 4, str(tour)[:110])
+    check('引导首步讲三栏', '三栏' in (tour.get('title') or ''), str(tour.get('title')))
+
+    # 往后翻几步：要专门讲「三栏位置和宽度能调」（用户报过没人知道能拖）
+    step_texts = []
+    for _ in range(3):
+        d = json.loads(cdp.js("""JSON.stringify({
+          text: (document.querySelector('#tourBox p') || {}).textContent || ''})""") or '{}')
+        step_texts.append(d.get('text') or '')
+        ok = cdp.js("""(() => { const b = document.getElementById('tourNext');
+          if (b) { b.click(); return true; } return false; })()""")
+        time.sleep(0.35)
+        if not ok:
+            break
+    joined = ' | '.join(step_texts)
+    check('引导讲了「拖栏头换位 / 拖分隔条调宽度」',
+          ('分隔条' in joined) and ('栏头' in joined), joined[:160])
+    cdp.js("window.__dmmEndTour && window.__dmmEndTour(); true")
+    time.sleep(0.3)
+    check('引导可关掉',
+          cdp.js("getComputedStyle(document.getElementById('tourBox')).display") == 'none')
 
     # 关于页：切过去读一遍（顺带跑到 loadAbout 里的模板代码 —— 历史上模板字符串写坏会让整页 JS 停摆）
     cdp.js("document.querySelector('.sidebar button[data-view=\"about\"]')?.click(); true")
@@ -372,13 +625,40 @@ def scenario_lib(cdp, state_json, shot: Path):
 SCENARIOS['lib'] = scenario_lib
 
 
+def wait_until(cdp, expr: str, timeout: float = 20.0, interval: float = 0.3) -> bool:
+    """轮询等待页面就绪（返回表达式是否为真），替代写死的 sleep。
+
+    必要性：真实环境里备份页首次渲染要算体积（用户那次导入留下 343 个 mod 的备份），
+    写死 sleep 会让断言在页面渲染前跑，看起来像功能回归（实测踩过：5 条断言集体假失败）。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            if cdp.js(f'!!({expr})') is True:
+                return True
+        except Exception:
+            pass
+        time.sleep(interval)
+    return False
+
+
+def wait_view(cdp, view: str, marker: str, timeout: float = 20.0) -> bool:
+    """切到某视图并等它的内容真渲染出来（marker 是 JS 表达式）"""
+    cdp.js(f"document.querySelector('.sidebar button[data-view=\"{view}\"]')?.click(); true")
+    return wait_until(cdp, marker, timeout)
+
+
 def scenario_lists(cdp, state_json, shot: Path):
     """备份页 / 预设页现代化验收（只读：只看、只开对话框，**不保存任何设置**）。
 
     验的是"表格真渲染出来了 / 汇总与进度条在 / 搜索真能过滤 / 策略对话框真能打开"。"""
     # ---- 备份页 ----
-    cdp.js("document.querySelector('.sidebar button[data-view=\"backups\"]')?.click(); true")
-    time.sleep(0.9)
+    # 等汇总条/表头真出来（大备份体积计算可能耗时），而不是 sleep 死等
+    ready = wait_view(cdp, 'backups',
+                      "document.querySelector('#backupCards .bak-sum') "
+                      "&& document.querySelector('#backupCards table.lib-table th')")
+    if not ready:
+        skip('备份页渲染未在超时内就绪（可能在算大备份体积）', '备份页')
+        return
     raw = cdp.js("JSON.stringify({"
                  "summary: !!document.querySelector('#backupCards .bak-sum'),"
                  "bar: !!document.querySelector('#backupCards .bak-bar'),"
@@ -439,8 +719,13 @@ def scenario_lists(cdp, state_json, shot: Path):
     check('备份页截图已保存', p1.is_file() and p1.stat().st_size > 1000, str(p1))
 
     # ---- 预设页 ----
-    cdp.js("document.querySelector('.sidebar button[data-view=\"profiles\"]')?.click(); true")
-    time.sleep(0.8)
+    ready2 = wait_view(cdp, 'profiles',
+                       "document.querySelector('#profileCards .bak-sum') "
+                       "&& (document.querySelector('#profileCards table.lib-table') "
+                       "|| document.querySelector('#profileCards .tip'))")
+    if not ready2:
+        skip('预设页渲染未在超时内就绪', '预设页')
+        return
     q = json.loads(cdp.js("JSON.stringify({"
                           "headers: [...document.querySelectorAll('#profileCards table.lib-table th')].map(x => x.textContent),"
                           "summary: !!document.querySelector('#profileCards .bak-sum'),"
@@ -474,6 +759,218 @@ def scenario_lists(cdp, state_json, shot: Path):
 SCENARIOS['lists'] = scenario_lists
 
 
+def scenario_mineconflict(cdp, state_json, shot: Path):
+    """同名冲突必须**问玩家**（用户反馈：不能替玩家选）。
+
+    真链路：造一个与「我的 mod」同名的整合包 → 真喂给文件选择框 → 预览框 → 点「替换导入」
+    → 应弹出**逐个选择**的决策框（默认预选"保留我的"）→ 点「取消导入」→ 确认什么都没变。
+    **只跑 mock 环境**（会写标记），真实游戏目录自动跳过。"""
+    import zipfile
+    real = 'mock' not in str(state_json.get('game', {}).get('dir', '')).lower()
+    if real and not ALLOW_REAL:
+        skip('mineconflict 剧本（会写标记+造包）——真实游戏目录，未加 --allow-real',
+             f"game_dir={state_json['game']['dir']}；请用 --source 打 mock 环境")
+        return
+
+    # ① 标记一个 mock mod（冲突对象）
+    name = cdp.js("(async () => { const r = document.querySelector('.mod-row'); if (!r) return '';"
+                  "  const n = r.dataset.name;"
+                  "  const x = await api('/api/mods/mine', {method:'POST', body: JSON.stringify({name:n, mine:true})});"
+                  "  await load(); return x.ok ? n : ''; })()")
+    check('准备好「我的 mod」用于制造冲突', bool(name), str(name))
+    if not name:
+        return
+    try:
+        # ② 造一个含同名 mod 的整合包（放 99-临时文件，用完删）
+        pack = SHOT_DIR / 'mineconflict_pack.zip'
+        SHOT_DIR.mkdir(parents=True, exist_ok=True)
+        body = 'return { run = function() new_mod("X", {}) end, packages = {}, version = "9.9" }'
+        with zipfile.ZipFile(pack, 'w') as z:
+            z.writestr(f'mods/{name}/{name}.mod', body)
+            z.writestr(f'mods/{name}/scripts/{name}.lua', '-- pack 版本')
+            z.writestr('mods/E2EExtraPackMod/E2EExtraPackMod.mod', body)
+            z.writestr('mods/mod_load_order.txt', f'{name}\nE2EExtraPackMod\n')
+
+        # ③ 真把文件喂给 #fileInput 并触发 change
+        doc = cdp.send('DOM.getDocument', depth=1)
+        node = cdp.send('DOM.querySelector', nodeId=doc['root']['nodeId'], selector='#fileInput')
+        cdp.send('DOM.setFileInputFiles', files=[str(pack)], nodeId=node['nodeId'])
+        cdp.js("document.getElementById('fileInput').dispatchEvent(new Event('change')); true")
+        time.sleep(2.0)
+
+        d1 = json.loads(cdp.js("JSON.stringify({open: !!document.querySelector('#modal.open'),"
+                               "title: (document.getElementById('modalTitle')||{}).textContent || '',"
+                               "body: (document.querySelector('#modalBody')||{}).innerText || ''})") or '{}')
+        check('整合包预览弹窗出现', bool(d1.get('open')) and '导入整合包' in (d1.get('title') or ''), str(d1)[:200])
+        check('预览里说明会逐个选择同名冲突', '逐个选' in (d1.get('body') or '') or '同名' in (d1.get('body') or ''),
+              (d1.get('body') or '')[:160])
+
+        # ④ 点「替换导入」→ 应进入**冲突决策框**
+        cdp.js("document.getElementById('modalOk').click(); true")
+        time.sleep(1.2)
+        d2 = json.loads(cdp.js("JSON.stringify({open: !!document.querySelector('#modal.open'),"
+                               "title: (document.getElementById('modalTitle')||{}).textContent || '',"
+                               "body: (document.querySelector('#modalBody')||{}).innerText || '',"
+                               "radios: document.querySelectorAll('#modalBody input[name^=mc_]').length,"
+                               "mineChecked: document.querySelectorAll('#modalBody input[value=mine]:checked').length,"
+                               "packOpts: document.querySelectorAll('#modalBody input[value=pack]').length})") or '{}')
+        check('弹出「与你的 mod 同名，请逐个选择」决策框', bool(d2.get('open')) and '同名' in (d2.get('title') or ''),
+              f"title={d2.get('title')!r} open={d2.get('open')}")
+        check('每个冲突给出"保留我的 / 用包里的"两个选项',
+              (d2.get('radios') or 0) >= 2 and (d2.get('packOpts') or 0) >= 1, str(d2.get('radios')))
+        check('默认预选"保留我的"（安全项）', (d2.get('mineChecked') or 0) >= 1, str(d2.get('mineChecked')))
+        check('决策框写清了两种选择的后果',
+              '保留' in (d2.get('body') or '') and '包里' in (d2.get('body') or ''), (d2.get('body') or '')[:200])
+        p = cdp.screenshot(shot.with_name(shot.stem + '-mineconflict.png'))
+        check('决策框截图已保存', p.is_file() and p.stat().st_size > 1000, str(p))
+
+        # ⑤ 点「取消导入」→ 必须什么都没导入
+        cdp.js("(() => { const btns = [...document.querySelectorAll('#modalBody ~ * .modal-extra, .modal-extra, #modalCancel')];"
+               "  const t = btns.find(b => (b.textContent || '').includes('取消导入')) || btns.find(b => b.id === 'modalCancel');"
+               "  if (t) t.click(); return !!t; })()")
+        time.sleep(1.0)
+        left = cdp.js("api('/api/mods').then(r => JSON.stringify((r.mods || []).map(m => m.name).filter(n => n === 'E2EExtraPackMod')))")
+        check('取消后没有导入任何东西', left in ('[]', '', None), str(left))
+        errs = cdp.js_errors()
+        check('冲突决策流程无 JS 异常', not errs, '; '.join(errs)[:300])
+    finally:
+        pack = SHOT_DIR / 'mineconflict_pack.zip'
+        try:
+            pack.unlink(missing_ok=True)
+        except Exception:
+            pass
+        # 收尾：取消标记
+        cdp.js(f"api('/api/mods/mine', {{method:'POST', body: JSON.stringify({{name:{json.dumps(name)}, mine:false}})}})"
+               ".then(() => load()).then(() => 1)")
+        time.sleep(0.3)
+
+
+SCENARIOS['mineconflict'] = scenario_mineconflict
+
+
+def scenario_dragpack(cdp, state_json, shot: Path):
+    """**拖动导入**整合包：不许重复解压（用户反馈"拖动导入还是先解压两次"）。
+
+    真链路：造包 → 在页面里合成 File 并派发真的 `drop` 事件（走 document 的拖放监听）
+    → 弹预览框 → 用后端解压计数器断言**只解压 1 次** → 取消导入 → 什么都没变。
+    只跑 mock 环境（会写标记/包），真实游戏目录自动跳过。"""
+    import base64
+    import zipfile
+    real = 'mock' not in str(state_json.get('game', {}).get('dir', '')).lower()
+    if real and not ALLOW_REAL:
+        skip('dragpack 剧本（会造包并走导入流程）——真实游戏目录，未加 --allow-real',
+             f"game_dir={state_json['game']['dir']}；请用 --source 打 mock 环境")
+        return
+
+    def state_now():
+        return json.loads(cdp.js("fetch('/api/test/state').then(r => r.text())") or '{}')
+
+    def extract_calls():
+        st = state_now()
+        return st.get('extract_calls')
+
+    # ① 造一个整合包（含一个能识别为整合包的结构：mods/ 下 2 个 mod + 清单）
+    pack = SHOT_DIR / 'e2e_dragpack.zip'
+    SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    body = 'return { run = function() new_mod("X", {}) end, packages = {}, version = "1.0" }'
+    with zipfile.ZipFile(pack, 'w') as z:
+        z.writestr('mods/DragPackA/DragPackA.mod', body)
+        z.writestr('mods/DragPackB/DragPackB.mod', body)
+        z.writestr('mods/mod_load_order.txt', 'DragPackA\nDragPackB\n')
+    b64 = base64.b64encode(pack.read_bytes()).decode('ascii')
+
+    try:
+        cdp.js("fetch('/api/test/extract_reset', {method:'POST'}).then(r => r.text())")
+        time.sleep(0.3)
+        before = extract_calls()
+
+        # ② 在页面里合成 File，派发**真的 drop 事件**（拖动导入走的就是这条监听）
+        dropped = cdp.js("""(async () => {
+          const bin = atob('%s');
+          const u8 = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+          const file = new File([u8], 'e2e_dragpack.zip', {type: 'application/zip'});
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          const ev = new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true});
+          document.dispatchEvent(ev);
+          return true;
+        })()""" % b64)
+        check('拖动 drop 事件已派发', dropped is True, str(dropped))
+        time.sleep(2.5)
+
+        # ③ 预览框出现，且只解压一次
+        d1 = json.loads(cdp.js("JSON.stringify({open: !!document.querySelector('#modal.open'),"
+                               "title: (document.getElementById('modalTitle')||{}).textContent || '',"
+                               "body: (document.querySelector('#modalBody')||{}).innerText || ''})") or '{}')
+        check('拖动后弹出整合包预览框（认出了整合包）',
+              bool(d1.get('open')) and '导入整合包' in (d1.get('title') or ''), str(d1)[:200])
+        check('预览列出了包内 mod',
+              'DragPackA' in (d1.get('body') or '') or '新增' in (d1.get('body') or ''),
+              (d1.get('body') or '')[:160])
+        after = extract_calls()
+        check('拖动导入只解压 1 次（不再"先解压两次"）',
+              isinstance(before, int) and isinstance(after, int) and (after - before) == 1,
+              f'解压次数 {before} -> {after}（差 {None if before is None or after is None else after - before}）')
+        p = cdp.screenshot(shot.with_name(shot.stem + '-dragpack.png'))
+        check('拖动导入截图已保存', p.is_file() and p.stat().st_size > 1000, str(p))
+
+        # ④ 取消：不留暂存、不导入
+        cdp.js("document.getElementById('modalCancel').click(); true")
+        time.sleep(1.2)
+        st2 = state_now()
+        check('取消后暂存已释放', (st2.get('pack_stages') or 0) == 0, str(st2.get('pack_stages')))
+        mods = cdp.js("api('/api/mods').then(r => JSON.stringify((r.mods||[]).map(m=>m.name)"
+                      ".filter(n => n === 'DragPackA' || n === 'DragPackB')))")
+        check('取消后没有 mod 被导入', mods in ('[]', '', None), str(mods))
+        errs = cdp.js_errors()
+        check('拖动导入流程无 JS 异常', not errs, '; '.join(errs)[:300])
+
+        # ⑤ **索引读不到的格式**（用户 2026-10-10 报"仍然解压两次"的那种包）：
+        #    以前判定类型时整包解压一次、随后 stage 又解压一次 = 2 次；
+        #    现在判定那次直接进暂存并把 token 交出去，导入复用 → 全流程仍只解压 1 次
+        cdp.js("fetch('/api/test/extract_reset', {method:'POST'}).then(r => r.text())")
+        time.sleep(0.3)
+        drop2 = cdp.js("""(async () => {
+          const bin = atob('%s');
+          const u8 = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+          const file = new File([u8], 'e2e_indexless.pack', {type: 'application/octet-stream'});
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          const ev = new DragEvent('drop', {dataTransfer: dt, bubbles: true, cancelable: true});
+          document.dispatchEvent(ev);
+          return true;
+        })()""" % b64)
+        check('索引读不到的包也能拖入', drop2 is True, str(drop2))
+        time.sleep(3.0)
+        d2 = json.loads(cdp.js("JSON.stringify({open: !!document.querySelector('#modal.open'),"
+                               "title: (document.getElementById('modalTitle')||{}).textContent || '',"
+                               "body: (document.querySelector('#modalBody')||{}).innerText || ''})") or '{}')
+        check('索引读不到的包也弹出了整合包预览',
+              bool(d2.get('open')) and '导入整合包' in (d2.get('title') or ''), str(d2)[:200])
+        calls2 = extract_calls()
+        check('判定 + 预览阶段只解压 1 次', calls2 == 1, f'解压次数 {calls2}')
+        # 确认导入（替换导入）→ 复用暂存，不应再解压
+        cdp.js("document.getElementById('modalOk').click(); true")
+        time.sleep(4.0)
+        calls3 = extract_calls()
+        check('确认导入后总解压次数仍是 1（用户报的第二次没了）', calls3 == 1, f'解压次数 {calls3}')
+        landed = cdp.js("api('/api/mods').then(r => JSON.stringify((r.mods||[]).map(m=>m.name)"
+                        ".filter(n => n === 'DragPackA' || n === 'DragPackB')))")
+        check('导入确实生效（包内 mod 已落盘）', landed not in ('[]', '', None), str(landed))
+        st3 = state_now()
+        check('导入后暂存已释放', (st3.get('pack_stages') or 0) == 0, str(st3.get('pack_stages')))
+    finally:
+        try:
+            pack.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+SCENARIOS['dragpack'] = scenario_dragpack
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--exe', default=str(EXE_DEFAULT), help='被测 exe（默认 alpha 包）')
@@ -484,6 +981,8 @@ def main():
     ap.add_argument('--allow-real', action='store_true',
                     help='允许会写盘的剧本跑在真实游戏目录上（默认拒绝；写盘剧本请优先用 --source 打 mock）')
     ap.add_argument('--timeout', type=int, default=60, help='等应用起来的总超时（秒）')
+    ap.add_argument('--allow-kill', action='store_true',
+                    help='允许杀掉已在运行的 DMM 实例（默认拒绝——那可能是用户正在用的窗口，不是我们起的）')
     args = ap.parse_args()
     global ALLOW_REAL
     ALLOW_REAL = bool(args.allow_real)
@@ -495,7 +994,8 @@ def main():
         sys.exit(2)
 
     print(f'== DMM E2E（{args.scenario}）==')
-    kill_app()
+    # 注意：这里**不再**无脑清场。launch() 会先检查有没有别人在跑，
+    # 有就拒绝（除非显式 --allow-kill）——绝不杀用户正在用的窗口。
     workdir, proc = launch(args)
     log_offset = log_size(workdir / 'app.log')      # 只看本次启动后新增的日志
     cdp = None
@@ -528,6 +1028,19 @@ def main():
         cdp.send('Log.enable')
         cdp.send('Page.enable')
         time.sleep(1.0)                       # 给前端 load() 一点时间
+        # 开场先把可能挡路的弹窗关掉（启动时的崩溃弹窗、上次留下的确认框等）。
+        # 曾经因为一个弹窗挡住侧边栏，让 lists 剧本整页断言集体失败，看起来像代码回归。
+        dismissed = cdp.js("""(() => {
+          const m = document.getElementById('modal');
+          if (!m || !m.classList.contains('open')) return '';
+          const t = (document.getElementById('modalTitle') || {}).textContent || '';
+          const c = document.getElementById('modalCancel');
+          if (c) c.click(); else m.classList.remove('open');
+          return t;
+        })()""")
+        if dismissed:
+            print(f'  （开场关掉了一个挡路弹窗: {dismissed}）')
+        time.sleep(0.4)
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         shot = SHOT_DIR / f'{ts}-{args.scenario}.png'
         print(f'-- 剧本 {args.scenario} --')
