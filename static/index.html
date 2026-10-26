@@ -234,25 +234,12 @@
   .ghost.danger-crash:disabled { border-color: #3a2020; color: #5a3a3a; }
   .search-wrap { position: relative; flex-shrink: 0; }
   .search-wrap input { padding-right: 26px; }
-  #btnClearSearch {
-    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-    background: none; border: none; color: var(--dim, #999);
-    cursor: pointer; font-size: 13px; line-height: 1; padding: 2px 4px;
-  }
-  #btnClearSearch:hover { color: var(--text); }
   input[type="text"] {
     background: var(--panel2); color: var(--text); border: 1px solid var(--border);
     border-radius: 7px; padding: 7px 12px; font-size: 13px; outline: none; flex: 1; max-width: 320px;
     transition: border-color .15s;
   }
   input[type="text"]:focus { border-color: var(--accent); }
-  .chips { display: flex; gap: 5px; }
-  .chip {
-    background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
-    border-radius: 20px; padding: 5px 13px; font-size: 12px; cursor: pointer; transition: all .12s;
-  }
-  .chip:hover { color: var(--text); }
-  .chip.active { background: var(--active-bg); border-color: var(--accent); color: var(--accent); }
   .log-fbtn {
     background: var(--panel2); color: var(--dim); border: 1px solid var(--border);
     border-radius: 14px; padding: 3px 11px; font-size: 12px; cursor: pointer; transition: all .12s;
@@ -340,8 +327,8 @@
     font-size: 12.5px; color: var(--text); cursor: pointer; white-space: nowrap;
   }
   .banner-menu-item:hover { background: var(--active-bg); }
-  /* 诊断条：一行常驻（两项 + 名称），点一项展开/收起对应横幅 */
-  .banner-lights { flex: 1; display: flex; gap: 0; align-items: center;
+  /* 诊断条：常驻在工具栏最左（原来独占一行，和搜索/筛选那行合并了） */
+  .banner-lights { flex: 0 1 auto; display: flex; gap: 0; align-items: center;
     justify-content: flex-start; flex-wrap: wrap;
     background: var(--panel2); border: 1px solid var(--border);
     border-radius: 8px; padding: 3px 6px; }
@@ -701,6 +688,21 @@
     padding:1px 8px;font-size:11.5px;font-variant-numeric:tabular-nums}
   .col-head .hint{color:var(--dim);font-size:11.5px;margin-left:auto;
     min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 栏头自带的筛选框：只筛这一栏，右侧留出 20px 给清除按钮 */
+  .col-filter{position:relative;display:flex;align-items:center;margin-left:auto;flex:0 0 auto}
+  .col-filter input{
+    width:124px;flex:0 0 auto;max-width:none;padding:3px 22px 3px 8px;font-size:11.5px;color:var(--text);
+    background:var(--panel);border:1px solid var(--border);border-radius:6px;outline:none;
+    transition:border-color .12s;
+  }
+  .col-filter input::placeholder{color:var(--dim)}
+  .col-filter input:focus{border-color:var(--accent)}
+  .col-filter button{
+    position:absolute;right:3px;top:50%;transform:translateY(-50%);
+    background:transparent;border:none;color:var(--dim);cursor:pointer;
+    font-size:10.5px;line-height:1;padding:2px 3px;border-radius:4px;
+  }
+  .col-filter button:hover{color:var(--text);background:var(--active-bg)}
   .col-body{flex:1;min-height:0;overflow-y:auto;padding:0 0 6px}
   .col-body::-webkit-scrollbar{width:10px}
   .col-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px;
@@ -816,14 +818,9 @@
       <!-- Mod 视图 -->
       <section class="view active" id="view-mods">
         <div class="toolbar">
-          <div class="search-wrap">
-            <input type="text" id="search" placeholder="搜索 mod 名称…">
-            <button id="btnClearSearch" title="清空搜索" style="display:none">✕</button>
-          </div>
-          <div class="chips">
-            <button class="chip active" data-filter="all">全部</button>
-            <button class="chip" data-filter="on">已启用</button>
-            <button class="chip" data-filter="off">已禁用</button>
+          <div class="banner-lights" id="bannerLights" style="display:none">
+            <span class="b-light-item" id="lightItemDmf" title="DMF 组件：点击展开/收起"><span class="b-light-text">DMF组件</span><span class="b-light gray" id="lightDmf"></span></span>
+            <span class="b-light-item" id="lightItemDep" title="mod 环境检查：点击展开/收起"><span class="b-light-text">mod 环境检查</span><span class="b-light gray" id="lightDep"></span></span>
           </div>
           <span class="spacer"></span>
           <button class="ghost" id="btnImport" style="border-color:#2a9d68;color:#3ecf8e">＋ 导入</button>
@@ -834,21 +831,6 @@
           <input type="file" id="fileInput" accept=".zip,.7z,.rar,.tar,.gz,.tgz,.bz2,.xz" multiple style="display:none">
           <input type="file" id="txtInput" accept=".txt" multiple style="display:none">
           <input type="file" id="dirInputPick" webkitdirectory multiple style="display:none">
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;padding:0 14px 8px;flex-wrap:wrap">
-          <div class="banner-drop" style="display:none">
-            <button class="banner-select" id="bannerSelectBtn" title="横幅显示控制">横幅：2/2 ▾</button>
-            <div class="banner-menu" id="bannerMenu" style="display:none">
-              <label class="banner-menu-item"><input type="checkbox" id="chkDmf" checked>DMF 框架</label>
-              <label class="banner-menu-item"><input type="checkbox" id="chkDep" checked>mod 环境检查</label>
-              <label class="banner-menu-item" style="border-top:1px solid var(--border);margin-top:2px;padding-top:8px"><input type="checkbox" id="chkAuto" checked>自动收起正常横幅</label>
-            </div>
-          </div>
-          <button class="banner-select" id="bannerToggleAll" title="一键收起/展开全部横幅" style="display:none">⏹ 收起全部</button>
-          <div class="banner-lights" id="bannerLights" style="display:none">
-            <span class="b-light-item" id="lightItemDmf" title="DMF 组件：点击展开/收起"><span class="b-light-text">DMF组件</span><span class="b-light gray" id="lightDmf"></span></span>
-            <span class="b-light-item" id="lightItemDep" title="mod 环境检查：点击展开/收起"><span class="b-light-text">mod 环境检查</span><span class="b-light gray" id="lightDep"></span></span>
-          </div>
         </div>
         <div class="banner-wrap" id="dmfWrap"><div id="dmfBanner"></div></div>
         <div class="banner-wrap" id="depWrap"><div id="depBanner"></div></div>
@@ -867,7 +849,10 @@
           <div class="col" id="colOff">
             <div class="col-head">
               <span class="name">未启用</span><span class="badge" id="nOff">0</span>
-              <span class="hint">双击启用，或拖到右栏</span>
+              <span class="col-filter">
+                <input type="text" id="searchOff" placeholder="筛选…" title="只筛「未启用」这一栏">
+                <button id="btnClearSearchOff" title="清空" style="display:none">✕</button>
+              </span>
             </div>
             <div class="col-body" id="bodyOff" data-side="off"></div>
           </div>
@@ -875,7 +860,10 @@
           <div class="col" id="colOn">
             <div class="col-head">
               <span class="name">已启用</span><span class="badge" id="nOn">0</span>
-              <span class="hint">双击停用，拖动排序</span>
+              <span class="col-filter">
+                <input type="text" id="searchOn" placeholder="筛选…" title="只筛「已启用」这一栏">
+                <button id="btnClearSearchOn" title="清空" style="display:none">✕</button>
+              </span>
             </div>
             <div class="col-body" id="bodyOn" data-side="on"></div>
           </div>
@@ -1107,11 +1095,11 @@
   <script src="/vendor/sortablejs/Sortable.min.js"></script>
   <script>
     const $ = id =>document.getElementById(id);
-    const listEl = $('modList'), toastEl = $('toast'), searchEl = $('search');
+    const listEl = $('modList'), toastEl = $('toast');
     // 骨架屏超时兜底：无论加载成败，10 秒后移除，避免永久白屏
     setTimeout(() => { const b = document.getElementById('bootLoading'); if (b) b.remove(); }, 10000);
     const btnSave = $('btnSaveMods'), btnRevert = $('btnRevert'), dirtyEl = $('dirty');
-    let mods = [], dirty = false, filter = 'all', keyword = '';
+    let mods = [], dirty = false, kwOff = '', kwOn = '';
     let myMods = new Set();   // 「我的 mod」名单（自研/私装，换包时原地保留 + 保持启用）
     let myLib = [];           // 管理器库总览 [{name, in_lib, deployed, enabled, size_kb}]
     let myLibDir = '';        // 管理器库路径（后端回报，用于展示）
@@ -1868,18 +1856,21 @@
       if (!$('logCtxMenu') || !$('logCtxMenu').contains(e.target)) hideLogCtx();
     });
 
-/* ---------- Mod 列表 ---------- */
-    function visibleMods() {
-      let list = mods;
-      if (filter === 'on') list = list.filter(m =>m.enabled);
-      if (filter === 'off') list = list.filter(m => !m.enabled);
-      if (keyword) {
-        const k = keyword.toLowerCase();
-        list = list.filter(m =>m.name.toLowerCase().includes(k)
-          || (m.display_name || '').toLowerCase().includes(k)
-          || (m.version || '').toLowerCase().includes(k));
-      }
-      return list;
+/* ---------- Mod 列表 ----------
+   每一栏有自己的筛选词：两栏本来就按启停分开，再放一个"全部/已启用/已禁用"的
+   全局筛选只会把某一栏变空，没意义。 */
+    function matchKeyword(m, kw) {
+      if (!kw) return true;
+      const k = kw.toLowerCase();
+      return m.name.toLowerCase().includes(k)
+        || (m.display_name || '').toLowerCase().includes(k)
+        || (m.version || '').toLowerCase().includes(k);
+    }
+    function visibleOff() {
+      return mods.filter(m => !m.enabled && matchKeyword(m, kwOff));
+    }
+    function visibleOn() {
+      return mods.filter(m => m.enabled && matchKeyword(m, kwOn));
     }
     /* ---------- 批量选择（多选模式，右键菜单进入） ---------- */
     let batchSel = new Set();
@@ -2039,15 +2030,11 @@
       if (!list.length) return;
       depFlashIdx = (depFlashIdx + 1) % list.length;
       const name = list[depFlashIdx];
-      // 重置过滤/搜索，确保问题行可见
-      if (filter !== 'all' || keyword) {
-        filter = 'all';
-        keyword = '';
-        const inp = $('search');
-        if (inp) inp.value = '';
-        const clearBtn = $('btnClearSearch');
-        if (clearBtn) clearBtn.style.display = 'none';
-        document.querySelectorAll('.chip').forEach(c =>c.classList.toggle('active', c.dataset.filter === 'all'));
+      // 清掉两栏的筛选词，确保问题行可见
+      if (kwOff || kwOn) {
+        kwOff = ''; kwOn = '';
+        ['searchOff', 'searchOn'].forEach(id => { const inp = $(id); if (inp) inp.value = ''; });
+        ['btnClearSearchOff', 'btnClearSearchOn'].forEach(id => { const b = $(id); if (b) b.style.display = 'none'; });
         render();
       }
       document.querySelector('.sidebar button[data-view="mods"]')?.click();
@@ -2275,12 +2262,11 @@
       return li;
     }
     function render() {
-      const list = visibleMods();
-      const enabled = list.filter(m =>m.enabled);
-      const disabled = list.filter(m => !m.enabled);
+      const enabled = visibleOn();
+      const disabled = visibleOff();
       const orderMap = {};
       enabled.forEach((m, i) =>orderMap[m.name] = i + 1);
-      // 栏头计数用全量（不受搜索过滤影响），否则搜索时数字会跳
+      // 栏头计数用全量（不受筛选影响），否则输入时数字会跳
       $('nOn').textContent = mods.filter(m =>m.enabled).length;
       $('nOff').textContent = mods.filter(m => !m.enabled).length;
 
@@ -2294,14 +2280,13 @@
       bodyOff.innerHTML = '';
       bodyOff.appendChild(fOff);
 
-      const filtered = !!keyword || filter !== 'all';
       if (!enabled.length) {
         bodyOn.innerHTML = '<div class="empty-col">' +
-          (filtered ? '没有匹配的已启用 mod' : '右栏空了，从左栏拖一个过来') + '</div>';
+          (kwOn ? '没有匹配的已启用 mod' : '右栏空了，从左栏拖一个过来') + '</div>';
       }
       if (!disabled.length) {
         bodyOff.innerHTML = '<div class="empty-col">' +
-          (filtered ? '没有匹配的未启用 mod' : '全部启用了') + '</div>';
+          (kwOff ? '没有匹配的未启用 mod' : '全部启用了') + '</div>';
       }
       updateBatchBar();
       renderModInfo();
@@ -2396,14 +2381,20 @@
         toast(nv ? '备注已保存' : '备注已清空');
       } catch (e) { toast('保存备注失败: ' + e.message); renderModInfo(); }
     }
-    searchEl.addEventListener('input', () => { keyword = searchEl.value.trim(); render(); $('btnClearSearch').style.display = searchEl.value ? '' : 'none'; });    $('btnClearSearch').addEventListener('click', () => { searchEl.value = ''; keyword = ''; render(); $('btnClearSearch').style.display = 'none'; searchEl.focus(); });
-    document.querySelectorAll('.chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        document.querySelectorAll('.chip').forEach(c =>c.classList.remove('active'));
-        chip.classList.add('active');
-        filter = chip.dataset.filter; render();
+    /* 两栏各一个筛选框：只筛自己那一栏，互不影响 */
+    [['searchOff', 'btnClearSearchOff', 'kwOff'], ['searchOn', 'btnClearSearchOn', 'kwOn']]
+      .forEach(([inputId, clearId, varName]) => {
+        const inp = $(inputId), clr = $(clearId);
+        if (!inp) return;
+        const sync = () => {
+          if (varName === 'kwOff') kwOff = inp.value.trim(); else kwOn = inp.value.trim();
+          if (clr) clr.style.display = inp.value ? '' : 'none';
+          render();
+        };
+        inp.addEventListener('input', sync);
+        inp.addEventListener('keydown', e => { if (e.key === 'Escape') { inp.value = ''; sync(); inp.blur(); } });
+        clr?.addEventListener('click', () => { inp.value = ''; sync(); inp.focus(); });
       });
-    });
 
     /* ---------- 横幅显示控制（按钮伪下拉 + 复选框 + 指示灯） ---------- */
     const BANNER_NAMES = { dmf: 'DMF 组件', dep: 'mod 环境检查' };
@@ -3480,10 +3471,11 @@
     function collectEnabledOrder() {
       const order = [];
       const seen = new Set();
-      // 1. 仅无过滤（搜索词为空且筛选=全部）时，DOM 顺序 = 用户拖拽结果，作为清单顺序基础。
-      //    搜索/筛选生效时视图不完整（只显示匹配子集），DOM 顺序≠完整清单顺序，
-      //    若仍按可见行收集，被搜索并启用的 mod 会被错误排到清单第一位。
-      if (!keyword && filter === 'all') {
+      // 1. 右栏没在筛选时，DOM 顺序 = 用户拖拽结果，可作为清单顺序基础。
+      //    右栏被筛选时视图不完整（只显示匹配子集），DOM 顺序≠完整清单顺序，
+      //    若仍按可见行收集，被筛掉又启用的 mod 会被错误排到清单第一位。
+      //    注：左栏的筛选词不影响右栏内容，无需考虑。
+      if (!kwOn) {
         for (const li of bodyOn.querySelectorAll('.mod-row')) {
           const name = li.dataset.name;
           if (!seen.has(name)) { order.push(name); seen.add(name); }

@@ -425,6 +425,36 @@ def scenario_smoke(cdp, state_json, shot: Path):
     check('DMF 横幅有状态文案和操作按钮',
           bool(dmf.get('txt')) and bool(dmf.get('btns')), str(dmf))
 
+    # 搜索下放到两栏 + 诊断条并进工具栏（全局 chips 已删）
+    lay2 = json.loads(cdp.js("""(() => {
+      const mid = id => { const e = document.getElementById(id); if (!e) return null;
+        const r = e.getBoundingClientRect(); return Math.round(r.top + r.height / 2); };
+      return JSON.stringify({
+        chips: document.querySelectorAll('#view-mods .chip').length,
+        off: !!document.getElementById('searchOff'),
+        on: !!document.getElementById('searchOn'),
+        lightsMid: mid('bannerLights'), importMid: mid('btnImport')});
+    })()""") or '{}')
+    check('全局筛选 chips 已删除（两栏已按启停分开）', lay2.get('chips') == 0, str(lay2))
+    check('两栏各有自己的筛选框', lay2.get('off') is True and lay2.get('on') is True, str(lay2))
+    check('诊断条与工具栏按钮在同一行',
+          lay2.get('lightsMid') is not None
+          and abs((lay2.get('lightsMid') or 0) - (lay2.get('importMid') or 0)) <= 2, str(lay2))
+
+    # 只筛左栏，右栏内容不受影响
+    flt = json.loads(cdp.js("""(() => {
+      const on0 = document.querySelectorAll('#bodyOn .mod-row').length;
+      const off0 = document.querySelectorAll('#bodyOff .mod-row').length;
+      const i = document.getElementById('searchOff');
+      i.value = 'zzzz-no-such'; i.dispatchEvent(new Event('input', {bubbles: true}));
+      const on1 = document.querySelectorAll('#bodyOn .mod-row').length;
+      const off1 = document.querySelectorAll('#bodyOff .mod-row').length;
+      i.value = ''; i.dispatchEvent(new Event('input', {bubbles: true}));
+      return JSON.stringify({on0, off0, on1, off1});
+    })()""") or '{}')
+    check('只筛左栏时右栏不受影响',
+          flt.get('on1') == flt.get('on0') and (flt.get('off0') or 0) > 0 and flt.get('off1') == 0, str(flt))
+
     errs = cdp.js_errors()
     check('页面无 JS 异常/错误日志（favicon 除外）', not errs, '; '.join(errs)[:300])
 
