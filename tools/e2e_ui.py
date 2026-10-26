@@ -381,6 +381,32 @@ def scenario_smoke(cdp, state_json, shot: Path):
     check('详情栏没有收起按钮', info2.get('closeBtn') is False, str(info2))
     check('点行后详情栏有内容', info2.get('hasName') is True, str(info2))
 
+    # 游戏运行中：卡片变灰只读，单击看详情仍可用，拖拽被拦
+    lock1 = json.loads(cdp.js("""(() => {
+      gameRunning = true; updateEditLocks();
+      const body = document.getElementById('bodyOn');
+      const row = body.querySelector('.mod-row');
+      const op = row ? parseFloat(getComputedStyle(row).opacity) : null;
+      const s = window.Sortable ? Sortable.get(body) : null;
+      const canDrag = (s && s.options.onMove) ? s.options.onMove() : null;
+      return JSON.stringify({op, locked: body.classList.contains('locked'), canDrag});
+    })()""") or '{}')
+    check('游戏运行中卡片变灰', (lock1.get('op') or 1) < 0.9, str(lock1))
+    check('游戏运行中整栏标记为只读', lock1.get('locked') is True, str(lock1))
+    check('游戏运行中拖拽被拦（onMove 返回 false）', lock1.get('canDrag') is False, str(lock1))
+
+    cdp.js("(() => { const r = document.querySelector('#bodyOn .mod-row'); if (r) r.click(); return true; })()")
+    time.sleep(0.5)
+    lock2 = json.loads(cdp.js("""(() => {
+      const info = ((document.querySelector('#modInfo .info-name') || {}).textContent || '').length > 0;
+      gameRunning = false; updateLaunchBtn();   // 用 updateLaunchBtn 恢复：它内部会调 updateEditLocks，也会还原启动按钮文案
+      const row = document.querySelector('#bodyOn .mod-row');
+      const opAfter = row ? parseFloat(getComputedStyle(row).opacity) : null;
+      return JSON.stringify({info, opAfter});
+    })()""") or '{}')
+    check('游戏运行中单击仍能看详情', lock2.get('info') is True, str(lock2))
+    check('解除锁定后卡片透明度恢复', (lock2.get('opAfter') or 0) > 0.9, str(lock2))
+
     # 「恢复布局」必须常驻可见（原来「改过布局才出现」，用户根本找不到这功能）
     rz = json.loads(cdp.js("""(() => {
       const b = document.getElementById('btnResetLayout');

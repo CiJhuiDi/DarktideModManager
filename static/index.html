@@ -268,6 +268,12 @@
   }
   .mod-row:hover { border-color: #3d4659; }
   .mod-row.disabled { opacity: .5; cursor: default; }
+  /* 游戏运行中：整栏卡片变灰表示只读。单击照常（看详情），拖拽由 Sortable 的 onMove 拦住。
+     用 id 选择器是为了盖掉左栏 .mod-row.disabled 那层已经存在的 0.5 透明度，避免叠成看不清。 */
+  #bodyOn.locked .mod-row { opacity: .55; cursor: default; }
+  #bodyOff.locked .mod-row { opacity: .42; cursor: default; }
+  #bodyOn.locked .mod-row:hover { opacity: .8; }
+  #bodyOff.locked .mod-row:hover { opacity: .62; }
   .mod-row.missing { border-color: rgba(255,180,84,.45); }
   .mod-row.sortable-ghost { opacity: .25; }
   .mod-row.flash { animation: modflash .5s ease 3; }
@@ -2612,17 +2618,15 @@
       const save = $('btnSaveMods'), revert = $('btnRevert');
       if (save) { save.disabled = lock || !dirty; save.classList.toggle('locked', lock); }
       if (revert) { revert.disabled = lock || !dirty; revert.classList.toggle('locked', lock); }
-      // mod 列表启停开关：游戏运行中禁用；轮询恢复后同步解锁（不依赖重渲染）
-      // mod 行：游戏运行中禁用启停（双击路径拦在前面）与拖拽
-      document.querySelectorAll('#bodyOff .mod-row, #bodyOn .mod-row').forEach(r => {
-        r.classList.toggle('locked', lock);
-      });
+      // mod 行：游戏运行中整栏变灰（只读提示）。拖拽由 Sortable 的 onMove 拦，
+      // 双击由 dblclick 拦，单击不拦——仍然可以点开看详情。
+      ['bodyOff', 'bodyOn'].forEach(id => $(id)?.classList.toggle('locked', lock));
       // 锁定提示：和外层横幅同款（标准 .banner warn），别自成一套
       const hint = $('editLockHint');
       if (hint) {
         // 注意用 block：样式表里 #editLockHint 是 display:none，赋值 '' 只会退回 none，等于永不显示
         hint.style.display = lock ? 'block' : 'none';
-        hint.innerHTML = '<div class="banner warn"><span class="b-text">游戏运行中，已锁定 mod 增删改（关闭游戏后恢复）</span></div>';
+        hint.innerHTML = '<div class="banner warn"><span class="b-text">游戏运行中，mod 已锁定为只读 —— 可单击查看详情，关闭游戏后恢复修改</span></div>';
       }
       updateBatchBar();
     }
