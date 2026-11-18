@@ -69,14 +69,20 @@ def main():
         f.write(body)
 
     try:
-        # 创建（已存在则编辑标题+正文，实现幂等）
-        r = gh(['release', 'create', args.tag, '-R', args.repo, '--title', f'{args.tag} Beta',
-                '--notes-file', notes_path])
-        if r.returncode != 0:
-            # 已存在 → 编辑
+        # 先查是否存在，再决定 create / edit。
+        # 2026-11-18 踩到：先 create（预期 422 already exists）紧接着 edit，edit 会莫名报
+        # "release not found"；换成先 view 判断就正常了。别改回 create→edit 的写法。
+        exists = gh(['release', 'view', args.tag, '-R', args.repo]).returncode == 0
+        if exists:
             r = gh(['release', 'edit', args.tag, '-R', args.repo, '--title', f'{args.tag} Beta',
                     '--notes-file', notes_path])
             print('edit:', r.stdout.strip() or r.stderr.strip()[:200])
+        else:
+            r = gh(['release', 'create', args.tag, '-R', args.repo, '--title', f'{args.tag} Beta',
+                    '--notes-file', notes_path])
+            print('create:', r.stdout.strip() or r.stderr.strip()[:200])
+        if r.returncode != 0:
+            print('⚠️ 正文更新失败（rc=%d）' % r.returncode)
     finally:
         try:
             os.unlink(notes_path)
