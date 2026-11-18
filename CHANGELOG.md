@@ -35,8 +35,8 @@
 - **修：渐变背景整片消失**（用户报「渐变色的背景设计全部没有了」）：样式表里有两条 `body{}`，第二条带 `background: var(--bg)`，同优先级后写会把第一条的渐变整条覆盖掉；改背景那轮正好撞上。已删掉那行并加注释，渐变恢复成原来的三段色。
 - 验证：`check_inline_js` 通过；E2E smoke 源码 51 项、alpha exe 52 项全过；`test_full` 32/32；截图见 `99-临时文件/shots/`。
 
-**修：绕过启动器启动后卡在登录，游戏二十秒后自己退出（2026-11-18 用户报「失效了」）**
-- **根因**：2026-10-22 游戏更新后认证后端迁到 `https://login.shr-prod-identity.fatshark.services`。DMM 启动参数里硬编码的旧地址 `bsp-auth-prod.atoma.cloud` 还在响应，但登录排队检查返回 500。同一天的控制台日志：绕过启动那次是 `Auth operation 1 error: 500 Authentication queue check request failed` → SignInError → `signing_in → error` → 退出；原版启动器启动那次是 `signing_in → loading_packages`，登录正常。绕过日志里那句 `SD environment was locked` 就是「参数把后端环境锁死」的证据。
+**修：绕过启动器启动后登录失败，卡在标题界面（2026-11-18 用户报「失效了」）**
+- **根因**：2026-10-22 游戏更新后认证后端迁到 `https://login.shr-prod-identity.fatshark.services`。DMM 启动参数里硬编码的旧地址 `bsp-auth-prod.atoma.cloud` 还在响应，但登录排队检查返回 500。同一天的控制台日志：绕过启动那次是 `Auth operation 1 error: 500 Authentication queue check request failed` → SignInError → `signing_in → error` → `error → idle`，**游戏停在标题界面报错，不会自己退出**（日志里后面那条 `Window signals application exit` 是用户手动关窗口）；原版启动器启动那次是 `signing_in → loading_packages`，登录正常。绕过日志里那句 `SD environment was locked` 就是「参数把后端环境锁死」的证据。
 - **修法**：`core/crash.py` 的 `GAME_LAUNCH_ARGS` 照抄新版启动器参数 `-eac-untrusted --bundle-dir ../bundle --ini settings --lua-heap-mb-size 2048`，不再传两个 `--backend-*-service-url`，让游戏自己走 service discovery。
 - 验证：与原版启动器的日志逐段对照；`test_shader` 通过。真机启动待游戏关闭后实测。
 
