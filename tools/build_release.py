@@ -134,9 +134,11 @@ def main():
     print('[3/7] CHANGELOG 定版 v%s（%s）' % (new, datetime.date.today().isoformat()))
     chg = os.path.join(ROOT, 'CHANGELOG.md')
     t = open(chg, encoding='utf-8').read()
-    old_marker = '## 待定（未发布）'
-    if old_marker in t:
-        t = t.replace(old_marker, '## v%s（%s）' % (new, datetime.date.today().isoformat()), 1)
+    # 兼容「## 待定（未发布）」和「## 待定（2026-09-08 工作区，未发布/未定版）」两种写法：
+    # 2026-11-18 之前这里是死匹配 '## 待定（未发布）'，标题一改括号内容就静默跳过定版（当天踩到）。
+    m = re.search(r'^## 待定.*$', t, flags=re.M)
+    if m:
+        t = t[:m.start()] + '## v%s（%s）' % (new, datetime.date.today().isoformat()) + t[m.end():]
         open(chg, 'w', encoding='utf-8', newline='\n').write(t)
     else:
         print('  （无「待定」段，跳过）')

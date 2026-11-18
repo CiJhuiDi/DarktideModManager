@@ -19,10 +19,17 @@ from core.state import APP_ID, is_valid_game_dir
 
 router = APIRouter()
 
+# 启动参数照抄原版启动器（2026-11-18 对 launcher 1.0.425.0 / 游戏 1.3.819.302 核过）。
+# ⚠️ 不要传 --backend-auth-service-url / --backend-title-service-url：
+#   2026-10-22 更新后认证后端迁到 https://login.shr-prod-identity.fatshark.services，
+#   旧的 bsp-auth-prod.atoma.cloud 仍在响应，但登录排队检查直接 500
+#   （Symptom: Auth operation 1 error: 500 Authentication queue check request failed
+#    → SignInError → signing_in → error → 游戏自己退）。
+#   不传这些参数时游戏会自己走 service discovery 拿到当前环境；传了等于把环境锁死
+#   （日志里的 "SD environment was locked"）。
 GAME_LAUNCH_ARGS = [
+    "-eac-untrusted",
     "--bundle-dir", "../bundle", "--ini", "settings",
-    "--backend-auth-service-url", "https://bsp-auth-prod.atoma.cloud",
-    "--backend-title-service-url", "https://bsp-td-prod.atoma.cloud",
     "--lua-heap-mb-size", "2048",
 ]
 

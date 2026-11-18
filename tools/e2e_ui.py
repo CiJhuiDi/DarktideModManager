@@ -618,11 +618,14 @@ def scenario_lib(cdp, state_json, shot: Path):
     time.sleep(0.8)
     exp_rows = len(orig_names) + len(picked)
     info = cdp.js("JSON.stringify({"
-                  "rows: document.querySelectorAll('#mylibWrap .lib-table tbody tr').length,"
-                  "names: [...document.querySelectorAll('#mylibWrap .lib-name')].map(x => x.textContent),"
-                  "lib: (document.querySelector('#mylibWrap tbody tr td:nth-child(3)')||{}).innerText || '',"
-                  "deployed: (document.querySelector('#mylibWrap tbody tr td:nth-child(4)')||{}).innerText || '',"
-                  "btns: document.querySelectorAll('#mylibWrap tbody tr:first-child .lib-btn').length,"
+                  "rows: document.querySelectorAll('#mylibWrap .lib-i').length,"
+                  "names: [...document.querySelectorAll('#mylibWrap .lib-i .lib-name')]"
+                  ".map(x => (x.firstChild && x.firstChild.textContent || '').trim()),"
+                  "lib: (document.querySelector('#mylibWrap .lib-i .node')||{}).textContent || '',"
+                  "deployed: [...document.querySelectorAll('#mylibWrap .lib-i .node')].slice(0,3)"
+                  ".map(x => x.textContent).join(' | '),"
+                  "btns: ([...document.querySelectorAll('#mylibWrap .lib-i')][0]"
+                  "||{querySelectorAll:()=>[]}).querySelectorAll('.lib-acts button').length,"
                   "summary: (document.querySelector('#mylibWrap div')||{}).textContent || '',"
                   "overflow: getComputedStyle(document.getElementById('mylibWrap')).overflowY,"
                   "h: document.getElementById('mylibWrap').clientHeight,"
@@ -630,9 +633,10 @@ def scenario_lib(cdp, state_json, shot: Path):
     d = json.loads(info or '{}')
     check(f'库里出现 {exp_rows} 行（原有 {len(orig_names)} + 本次 {len(picked)}）',
           d.get('rows') == exp_rows, str(d.get('rows')))
-    check('表格含刚标记的 mod', all(n in (d.get('names') or []) for n in picked), f"{picked} vs {d.get('names')}")
-    check('库内列显示体积（KB）', 'KB' in (d.get('lib') or ''), str(d.get('lib')))
-    check('游戏目录列显示已部署', '✓' in (d.get('deployed') or ''), str(d.get('deployed')))
+    check('对照行含刚标记的 mod', all(n in (d.get('names') or []) for n in picked),
+          f"{picked} vs {d.get('names')}")
+    check('库侧显示体积（KB）', 'KB' in (d.get('lib') or ''), str(d.get('lib')))
+    check('游戏侧显示部署状态', '游戏目录' in (d.get('deployed') or ''), str(d.get('deployed')))
     check('每行 4 个操作按钮', d.get('btns') == 4, f"首行 {d.get('btns')} 个")
     check('汇总行有"共 N 个"', f"共 {exp_rows} 个" in (d.get('summary') or ''), str(d.get('summary'))[:140])
     check('容器是滚动容器（overflow-y: auto）', d.get('overflow') == 'auto', str(d.get('overflow')))
@@ -650,30 +654,16 @@ def scenario_lib(cdp, state_json, shot: Path):
     s = json.loads(sc or '{}')
     check('视口压矮后可滚动（内容没被裁掉）', (s.get('sh') or 0) > (s.get('ch') or 0), str(s))
 
-    # 吸顶表头必须**完全**遮住滚过的行（曾漏缝：容器 padding-top 让表头停在裁剪边界内侧，
-    # 滚过的行从那 4px 缝里露出来 → 用户报"表头的元素没遮好"）
+    # 滚动（对照行没有表头，只验内容不被裁掉、容器顶部无 padding）
     cdp.js("(() => { const w = document.getElementById('mylibWrap'); w.scrollTop = 150; return true; })()")
     time.sleep(0.4)
-    stick = cdp.js("""JSON.stringify((() => {
-      const w = document.getElementById('mylibWrap');
-      const th = w.querySelector('thead th');
-      const thRect = th.getBoundingClientRect();
-      const wr = w.getBoundingClientRect();
-      const bad = [];
-      for (let y = Math.round(wr.top); y < Math.round(thRect.top); y += 2) {
-        const el = document.elementFromPoint(300, y);
-        if (el && el.closest && el.closest('tbody')) bad.push(y + ':' + el.tagName);
-      }
-      const bg = getComputedStyle(th).backgroundColor;
-      const m = /rgba?\\(([^)]+)\\)/.exec(bg);
-      const alpha = m && m[1].split(',').length === 4 ? parseFloat(m[1].split(',')[3]) : 1;
-      return {thTop: Math.round(thRect.top), wrapTop: Math.round(wr.top), bg, alpha, bad,
-              padTop: getComputedStyle(w).paddingTop};
-    })())""")
-    k = json.loads(stick or '{}')
-    check('吸顶表头上方没有滚过的行（无漏缝）', not k.get('bad'), f"漏出: {k.get('bad')} ({k})")
-    check('吸顶表头背景不透明（行不会透出来）', (k.get('alpha') or 0) >= 0.99, str(k.get('bg')))
-    check('表格滚动容器顶部无 padding（表头能贴住裁剪边界）', (k.get('padTop') in ('0px', '0')), str(k.get('padTop')))
+    k = json.loads(cdp.js("JSON.stringify({"
+                          "padTop: getComputedStyle(document.getElementById('mylibWrap')).paddingTop,"
+                          "sh: document.getElementById('mylibWrap').scrollHeight,"
+                          "ch: document.getElementById('mylibWrap').clientHeight})") or '{}')
+    check('列表滚动容器顶部无 padding（内容能贴住裁剪边界）',
+          (k.get('padTop') in ('0px', '0')), str(k.get('padTop')))
+    check('滚动后内容仍可访问（没被裁成空）', (k.get('sh') or 0) > 0, str(k))
     p2 = cdp.screenshot(shot.with_name(shot.stem + '-scroll.png'))
     check('滚动状态截图已保存', p2.is_file() and p2.stat().st_size > 1000, str(p2))
     cdp.send('Emulation.clearDeviceMetricsOverride')
@@ -726,27 +716,29 @@ def scenario_lists(cdp, state_json, shot: Path):
 
     验的是"表格真渲染出来了 / 汇总与进度条在 / 搜索真能过滤 / 策略对话框真能打开"。"""
     # ---- 备份页 ----
-    # 等汇总条/表头真出来（大备份体积计算可能耗时），而不是 sleep 死等
+    # 等汇总条/时间轴真出来（大备份体积计算可能耗时），而不是 sleep 死等
     ready = wait_view(cdp, 'backups',
                       "document.querySelector('#backupCards .bak-sum') "
-                      "&& document.querySelector('#backupCards table.lib-table th')")
+                      "&& (document.querySelector('#backupCards .tl-g') "
+                      "|| document.querySelector('#backupCards .empty-state'))")
     if not ready:
         skip('备份页渲染未在超时内就绪（可能在算大备份体积）', '备份页')
         return
     raw = cdp.js("JSON.stringify({"
                  "summary: !!document.querySelector('#backupCards .bak-sum'),"
                  "bar: !!document.querySelector('#backupCards .bak-bar'),"
-                 "rows: document.querySelectorAll('#backupCards table.lib-table tbody tr').length,"
-                 "groups: [...document.querySelectorAll('#backupCards .bak-group')].map(x => x.textContent),"
-                 "empty: !!document.querySelector('#backupCards .tip'),"
-                 "headers: [...document.querySelectorAll('#backupCards table.lib-table th')].map(x => x.textContent),"
+                 "rows: document.querySelectorAll('#backupCards .tl-i').length,"
+                 "fields: [...document.querySelectorAll('#backupCards .tl-i')].slice(0,1).map(x => x.children.length),"
+                 "groups: [...document.querySelectorAll('#backupCards .tl-g')].map(x => x.textContent),"
+                 "empty: !!document.querySelector('#backupCards .empty-state'),"
                  "search: !!document.getElementById('bakSearch'), sort: !!document.getElementById('bakSort'),"
                  "policy: !!document.getElementById('btnBakPolicy'), prune: !!document.getElementById('btnBakPrune'),"
                  "sumText: (document.querySelector('#backupCards .bak-sum')||{}).textContent || ''})")
     b = json.loads(raw or '{}')
     check('备份页有汇总条（占用/上限可见）', bool(b.get('summary')), str(b.get('sumText'))[:120])
     check('备份页有占用进度条', bool(b.get('bar')), str(b.get('bar')))
-    check('备份页表头齐全', b.get('headers') == ['时间', '类型', '内容', '启用', '大小', '操作'], str(b.get('headers')))
+    check('备份页每行字段齐全（时间/类型/内容/启用/大小/操作）',
+          b.get('fields') == [6] or not b.get('rows'), str(b.get('fields')))
     check('备份页有搜索框/排序/保留策略/清理按钮',
           all(b.get(k) for k in ('search', 'sort', 'policy', 'prune')), str(b)[:150])
     check('备份页有行或明确的空态', (b.get('rows') or 0) > 0 or bool(b.get('empty')),
@@ -757,13 +749,13 @@ def scenario_lists(cdp, state_json, shot: Path):
         check('备份页有时间线分组（今天/本周/更早）',
               all(g.split('（')[0] in ('今天', '本周', '更早') for g in b['groups']), str(b.get('groups')))
 
-    # 搜索真能过滤（输入不可能匹配的关键词 → 0 行 + 提示）
+    # 搜索真能过滤（输入不可能匹配的关键词 → 0 行 + 空态）
     cdp.js("(() => { const e = document.getElementById('bakSearch'); e.value = 'zzzz-no-such';"
            " e.dispatchEvent(new Event('input')); return true; })()")
     time.sleep(0.4)
-    f = json.loads(cdp.js("JSON.stringify({rows: document.querySelectorAll('#backupCards table.lib-table tbody tr').length,"
-                          "tip: !!document.querySelector('#backupCards .tip')})") or '{}')
-    check('备份页搜索能过滤（无匹配 → 0 行 + 提示）', (f.get('rows') or 0) == 0 and f.get('tip'), str(f))
+    f = json.loads(cdp.js("JSON.stringify({rows: document.querySelectorAll('#backupCards .tl-i').length,"
+                          "empty: !!document.querySelector('#backupCards .empty-state')})") or '{}')
+    check('备份页搜索能过滤（无匹配 → 0 行 + 空态）', (f.get('rows') or 0) == 0 and f.get('empty'), str(f))
     cdp.js("(() => { const e = document.getElementById('bakSearch'); e.value = '';"
            " e.dispatchEvent(new Event('input')); return true; })()")
     time.sleep(0.4)
@@ -795,32 +787,31 @@ def scenario_lists(cdp, state_json, shot: Path):
     # ---- 预设页 ----
     ready2 = wait_view(cdp, 'profiles',
                        "document.querySelector('#profileCards .bak-sum') "
-                       "&& (document.querySelector('#profileCards table.lib-table') "
-                       "|| document.querySelector('#profileCards .tip'))")
+                       "&& (document.querySelector('#profileCards .pf-grid') "
+                       "|| document.querySelector('#profileCards .empty-state'))")
     if not ready2:
         skip('预设页渲染未在超时内就绪', '预设页')
         return
     q = json.loads(cdp.js("JSON.stringify({"
-                          "headers: [...document.querySelectorAll('#profileCards table.lib-table th')].map(x => x.textContent),"
+                          "parts: [...document.querySelectorAll('#profileCards .pf')].slice(0,1)"
+                          ".map(x => [!!x.querySelector('.pf-name'), !!x.querySelector('.pf-count'), !!x.querySelector('.pf-time')]),"
                           "summary: !!document.querySelector('#profileCards .bak-sum'),"
-                          "rows: document.querySelectorAll('#profileCards table.lib-table tbody tr').length,"
-                          "empty: !!document.querySelector('#profileCards .tip'),"
+                          "rows: document.querySelectorAll('#profileCards .pf').length,"
+                          "empty: !!document.querySelector('#profileCards .empty-state'),"
                           "search: !!document.getElementById('profSearch'), sort: !!document.getElementById('profSort'),"
                           "newBtn: !!document.getElementById('btnNewProfile')})") or '{}')
     check('预设页有汇总条', bool(q.get('summary')), str(q)[:120])
     check('预设页有搜索/排序/新建按钮', all(q.get(k) for k in ('search', 'sort', 'newBtn')), str(q)[:120])
-    check('预设页有行或明确的空态', (q.get('rows') or 0) > 0 or bool(q.get('empty')),
+    check('预设页有档位或明确的空态', (q.get('rows') or 0) > 0 or bool(q.get('empty')),
           f"rows={q.get('rows')} empty={q.get('empty')}")
-    # 有预设时必须是表格（列名齐全）；没有预设时空态是正确表现
     if (q.get('rows') or 0) > 0:
-        check('预设页表头齐全（有预设时）', q.get('headers') == ['预设名', 'mod 数', '创建时间', '操作'],
-              str(q.get('headers')))
+        check('预设档位含名称/数量/时间', q.get('parts') == [[True, True, True]], str(q.get('parts')))
     cdp.js("(() => { const e = document.getElementById('profSearch'); e.value = 'zzzz-no-such';"
            " e.dispatchEvent(new Event('input')); return true; })()")
     time.sleep(0.4)
-    z = json.loads(cdp.js("JSON.stringify({rows: document.querySelectorAll('#profileCards table.lib-table tbody tr').length,"
-                          "tip: !!document.querySelector('#profileCards .tip')})") or '{}')
-    check('预设页搜索能过滤（无匹配 → 0 行 + 提示）', (z.get('rows') or 0) == 0 and z.get('tip'), str(z))
+    z = json.loads(cdp.js("JSON.stringify({rows: document.querySelectorAll('#profileCards .pf').length,"
+                          "empty: !!document.querySelector('#profileCards .empty-state')})") or '{}')
+    check('预设页搜索能过滤（无匹配 → 0 项 + 空态）', (z.get('rows') or 0) == 0 and z.get('empty'), str(z))
     cdp.js("(() => { const e = document.getElementById('profSearch'); e.value = '';"
            " e.dispatchEvent(new Event('input')); return true; })()")
     time.sleep(0.4)

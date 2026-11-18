@@ -10,7 +10,7 @@
 ----------------------------------------
 一、安装（1 分钟）
 ----------------------------------------
-1. 解压下载的压缩包，得到一个文件夹：DarktideModManager_alpha
+1. 解压下载的压缩包，得到一个文件夹：DarktideModManager_v0.6.0
 2. 双击里面的 DarktideModManager.exe
 3. 程序自动搜索游戏目录（首次启动等几秒）
    · Steam 版：扫常见 Steam 库；Xbox / PC Game Pass 版（实验功能）：扫各盘符

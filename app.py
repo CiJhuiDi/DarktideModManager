@@ -1481,17 +1481,12 @@ def index():
     if theme == "random":
         # 每次启动随机一个主题（不固化，保持随机状态）
         theme = random.choice(THEMES)
-    if theme == "custom":
-        mode = cfg.get("custom_theme_mode", "dark")
-        html = html.replace(
-            '<body data-theme="abyss" data-grad="diag">',
-            f'<body data-theme="custom" data-custom-mode="{mode}" data-grad="{grad}">'
-        )
-    else:
-        html = html.replace(
-            '<body data-theme="abyss" data-grad="diag">',
-            f'<body data-theme="{theme}" data-grad="{grad}">'
-        )
+    if theme not in THEMES:
+        theme = "abyss"   # 自定义主题 2026-11-18 撤掉；旧配置里的 custom 回退默认
+    html = html.replace(
+        '<body data-theme="abyss" data-grad="diag">',
+        f'<body data-theme="{theme}" data-grad="{grad}">'
+    )
     return HTMLResponse(html)
 
 
