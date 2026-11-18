@@ -26,18 +26,25 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('tag', help='版本 tag，如 v0.3.0')
     ap.add_argument('--repo', default='CiJhuiDi/DarktideModManager')
+    ap.add_argument('--notes-file', default=None,
+                    help='面向玩家的 Release 正文（Markdown，如 docs/release_notes/v0.6.0.md）。'
+                         '不给则退回「CHANGELOG 版本段 + 固定模板」——那是内部变更记录，玩家看不懂重点')
+    ap.add_argument('--skip-upload', action='store_true', help='只改 Release 正文，不上传 zip')
     args = ap.parse_args()
 
-    changelog = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'CHANGELOG.md'),
-                     encoding='utf-8').read()
-    start = changelog.find('## ' + args.tag)
-    if start == -1:
-        print(f'CHANGELOG 中找不到 ## {args.tag}')
-        sys.exit(1)
-    nxt = changelog.find('\n## ', start + len(args.tag) + 3)
-    section = changelog[start:nxt].strip() if nxt != -1 else changelog[start:].strip()
+    if args.notes_file:
+        body = open(args.notes_file, encoding='utf-8').read().strip()
+    else:
+        changelog = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'CHANGELOG.md'),
+                         encoding='utf-8').read()
+        start = changelog.find('## ' + args.tag)
+        if start == -1:
+            print(f'CHANGELOG 中找不到 ## {args.tag}')
+            sys.exit(1)
+        nxt = changelog.find('\n## ', start + len(args.tag) + 3)
+        section = changelog[start:nxt].strip() if nxt != -1 else changelog[start:].strip()
 
-    body = section + """
+        body = section + """
 
 ### 功能
 - 一键安装 DMF 框架（加载器 + 中文汉化 + dtkit-patch + 自动装载）
@@ -77,13 +84,16 @@ def main():
             pass
 
     # 上传 zip
-    zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'release',
-                            f'DarktideModManager_{args.tag}.zip')
-    if os.path.exists(zip_path):
-        r = gh(['release', 'upload', args.tag, zip_path, '-R', args.repo, '--clobber'])
-        print('upload:', r.stdout.strip() or r.stderr.strip()[:200])
+    if args.skip_upload:
+        print('--skip-upload：只更新正文，不动 zip')
     else:
-        print('zip 不存在，跳过上传:', zip_path)
+        zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'release',
+                                f'DarktideModManager_{args.tag}.zip')
+        if os.path.exists(zip_path):
+            r = gh(['release', 'upload', args.tag, zip_path, '-R', args.repo, '--clobber'])
+            print('upload:', r.stdout.strip() or r.stderr.strip()[:200])
+        else:
+            print('zip 不存在，跳过上传:', zip_path)
 
     r = gh(['release', 'view', args.tag, '-R', args.repo])
     print('---')
