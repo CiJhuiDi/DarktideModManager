@@ -3,7 +3,7 @@
 用法: python tools/release.py v0.3.0
 说明: 从 CHANGELOG.md 提取 [tag] 对应版本段作为正文，创建/更新 Release 并上传 zip。
 """
-import subprocess, os, sys, argparse
+import subprocess, os, sys, argparse, tempfile
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
@@ -55,12 +55,26 @@ def main():
         print('无法获取 GitHub 凭据')
         sys.exit(1)
 
-    # 创建（已存在则编辑标题+正文，实现幂等）
-    r = gh(['release', 'create', args.tag, '-R', args.repo, '--title', f'{args.tag} Beta', '--notes', body])
-    if r.returncode != 0:
-        # 已存在 → 编辑
-        r = gh(['release', 'edit', args.tag, '-R', args.repo, '--title', f'{args.tag} Beta', '--notes', body])
-        print('edit:', r.stdout.strip() or r.stderr.strip()[:200])
+    # 正文走 --notes-file：v0.6.0 起 CHANGELOG 版本段超过 Windows 命令行 8191 字符上限，
+    # 直接塞 --notes 会报 FileNotFoundError [WinError 206]（2026-11-18 踩到）。
+    notes_path = os.path.join(tempfile.gettempdir(), f'dmm_release_{args.tag}.md')
+    with open(notes_path, 'w', encoding='utf-8') as f:
+        f.write(body)
+
+    try:
+        # 创建（已存在则编辑标题+正文，实现幂等）
+        r = gh(['release', 'create', args.tag, '-R', args.repo, '--title', f'{args.tag} Beta',
+                '--notes-file', notes_path])
+        if r.returncode != 0:
+            # 已存在 → 编辑
+            r = gh(['release', 'edit', args.tag, '-R', args.repo, '--title', f'{args.tag} Beta',
+                    '--notes-file', notes_path])
+            print('edit:', r.stdout.strip() or r.stderr.strip()[:200])
+    finally:
+        try:
+            os.unlink(notes_path)
+        except OSError:
+            pass
 
     # 上传 zip
     zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'release',
